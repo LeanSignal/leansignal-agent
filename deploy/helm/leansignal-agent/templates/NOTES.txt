@@ -1,0 +1,18 @@
+LeanSignal Agent installed as {{ include "leansignal-agent.fullname" . }} in namespace {{ .Release.Namespace }}.
+
+Control plane:  {{ .Values.leansignal.endpoint | default "(unset - set leansignal.endpoint)" }}
+Dataplane:      {{ .Values.dataplane.endpoint | default "(unset - set dataplane.endpoint)" }}
+Local VM:       {{ include "leansignal-agent.localVMEndpoint" . }}
+
+OTLP endpoints (in-cluster):
+  grpc: {{ include "leansignal-agent.fullname" . }}.{{ .Release.Namespace }}.svc:{{ .Values.service.otlpGRPCPort }}
+  http: {{ include "leansignal-agent.fullname" . }}.{{ .Release.Namespace }}.svc:{{ .Values.service.otlpHTTPPort }}
+
+Check status:
+  kubectl -n {{ .Release.Namespace }} logs deploy/{{ include "leansignal-agent.fullname" . }} -f
+
+{{- if not (index .Values "victoria-metrics-single" "enabled") }}
+
+NOTE: the bundled local VictoriaMetrics is disabled. Either enable it
+(victoria-metrics-single.enabled=true) or point localVM.writeEndpoint at your own.
+{{- end }}

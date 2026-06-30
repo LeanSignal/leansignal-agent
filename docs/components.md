@@ -1,0 +1,73 @@
+# Custom components
+
+All first-party code lives under [`components/`](../components). The collector is
+otherwise standard OpenTelemetry Collector Contrib.
+
+## `metricsindex` (library)
+
+Shared types and an in-process pub/sub bus that decouples the tracker (publisher)
+from the edge controller (subscriber):
+
+- `HashKey` — an xxh3-128 fingerprint of a timeseries.
+- `TimeseriesEntry` / `TimeseriesBatch` — metric name + sorted labels + sample count.
+- `RegisterTimeseriesReceiver` / `BroadcastTimeseriesBatch` — the process-global bus.
+
+> One tracker and one edge controller are expected per process. The bus is a
+> process singleton, not keyed per pipeline.
+
+## `leansignalmetrics_tracker` (processor)
+
+Pass-through processor (`MutatesData: false`). For every batch it:
+
+1. Expands each OTLP metric into the Prometheus series name(s) it would produce
+   (counters get `_total`, histograms explode into `_bucket`/`_sum`/`_count`,
+   summaries into base + `quantile`/`_sum`/`_count`, etc.).
+2. Fingerprints each series and builds a per-call batch.
+3. Broadcasts the batch over the in-process bus to the edge controller.
+
+`ConsumeMetrics` is invoked **concurrently** by the receivers feeding the
+pipeline; the per-call batch keeps it free of shared mutable state (regression
+guard: `TestConsumeMetricsConcurrent`, run with `-race`).
+
+Config:
+
+```yaml
+leansignalmetrics_tracker:
+  log_metrics: false   # log first-seen metric names
+  log_series: false    # log first-seen series fingerprints
+```
+
+## `leansignal_demand_filter` (processor)
+
+Drops every metric whose Prometheus name is **not** on the current demand list,
+which it reads live from the edge controller on each batch. An empty / not-yet-
+received list blocks everything (fail-closed). The OTLP→Prometheus naming logic
+is intentionally mirrored from the tracker so demand matching uses identical
+names — **change both together**.
+
+```yaml
+leansignal_demand_filter:
+  log_filtered: false   # debug-log each dropped metric
+```
+
+## `leansignal_edge_controller` (extension)
+
+Maintains the persistent WebSocket to the LeanSignal API and three thread-safe
+caches:
+
+- **known** — every series seen, with an 8-hour ring buffer of per-hour sample
+  counts; drives "active" (needs index update) vs "inactive" (needs delete).
+- **discovered** — newly seen series awaiting their first "create".
+- **demand** — the current list of demanded Prometheus names (read by the filter).
+
+A background loop flushes to the control plane (discovered first, then known
+deletes, then known updates), with retry/backoff. Heartbeats carry cache sizes
+and sync stats.
+
+```yaml
+leansignal_edge_controller:
+  endpoint: "wss://api.leansignal.com/api/v1/agents/ws/"
+  agent_key: "${env:LEANSIGNAL_AGENT_KEY}"
+  reconnect_interval: 5s
+  ping_interval: 30s
+```

@@ -1,0 +1,83 @@
+# Default values for the leansignal-agent chart.
+
+image:
+  repository: ghcr.io/leansignal/leansignal-agent
+  # Defaults to the chart appVersion if empty.
+  tag: ""
+  pullPolicy: IfNotPresent
+pullSecrets: []
+
+# -- Number of collector replicas. The edge-controller + tracker assume a single
+# process per agent; keep this at 1 unless you understand the deduplication impact.
+replicaCount: 1
+
+# Control-plane connection to LeanSignal (the edge-controller extension).
+leansignal:
+  # WebSocket endpoint, e.g. wss://api.leansignal.com/api/v1/agents/ws/
+  endpoint: ""
+  agentKey:
+    # Provide the key inline (stored in a generated Secret)...
+    value: ""
+    # ...or reference an existing Secret you manage.
+    existingSecret: ""
+    existingSecretKey: agent-key
+
+# Central, long-retention store that receives only demanded metrics
+# (Prometheus remote-write URL).
+dataplane:
+  endpoint: ""
+
+# Local, full-fidelity VictoriaMetrics that receives everything.
+localVM:
+  # Prometheus remote-write endpoint of the local store. When the bundled
+  # subchart is enabled, this default targets its service.
+  writeEndpoint: ""
+
+receivers:
+  otlp:
+    enabled: true
+  k8sCluster:
+    enabled: true
+  kubeletStats:
+    enabled: true
+
+# Bundled local VictoriaMetrics (upstream victoria-metrics-single chart).
+# Disabled by default - enable to deploy a co-located store, or set
+# localVM.writeEndpoint to your own VM.
+victoria-metrics-single:
+  enabled: false
+  server:
+    retentionPeriod: 1d
+    persistentVolume:
+      enabled: true
+      size: 20Gi
+
+resources:
+  requests:
+    cpu: "500m"
+    memory: 512Mi
+  limits:
+    cpu: "2"
+    memory: 2Gi
+
+serviceAccount:
+  create: true
+  name: ""
+
+rbac:
+  # Create the ClusterRole/Binding needed by the k8s_cluster + kubeletstats receivers.
+  create: true
+
+service:
+  # ClusterIP service exposing the OTLP receivers for in-cluster apps.
+  type: ClusterIP
+  otlpGRPCPort: 4317
+  otlpHTTPPort: 4318
+
+podAnnotations: {}
+nodeSelector: {}
+tolerations: []
+affinity: {}
+
+# Extra collector log level: debug | info | warn | error
+logLevel: info

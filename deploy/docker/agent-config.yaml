@@ -1,0 +1,54 @@
+# Collector config for the docker-compose trial. The local VM is reached via the
+# compose service name "victoriametrics" (not 127.0.0.1).
+extensions:
+  health_check:
+    endpoint: 0.0.0.0:13133
+  leansignal_edge_controller:
+    endpoint: "${env:LEANSIGNAL_ENDPOINT}"
+    agent_key: "${env:LEANSIGNAL_AGENT_KEY}"
+    reconnect_interval: 5s
+    ping_interval: 30s
+
+receivers:
+  otlp:
+    protocols:
+      grpc:
+        endpoint: 0.0.0.0:4317
+      http:
+        endpoint: 0.0.0.0:4318
+
+processors:
+  batch:
+    send_batch_size: 5000
+    timeout: 1s
+  leansignalmetrics_tracker:
+    log_metrics: false
+    log_series: false
+  leansignal_demand_filter:
+    log_filtered: false
+
+exporters:
+  prometheusremotewrite/local:
+    endpoint: http://victoriametrics:8428/api/v1/write
+    tls:
+      insecure: true
+  prometheusremotewrite/dataplane:
+    endpoint: "${env:LEANSIGNAL_DATAPLANE_ENDPOINT}"
+
+connectors:
+  forward/demand_filter: {}
+
+service:
+  extensions: [health_check, leansignal_edge_controller]
+  pipelines:
+    metrics/all:
+      receivers: [otlp]
+      processors: [leansignalmetrics_tracker, batch]
+      exporters: [prometheusremotewrite/local, forward/demand_filter]
+    metrics/filtered:
+      receivers: [forward/demand_filter]
+      processors: [leansignal_demand_filter, batch]
+      exporters: [prometheusremotewrite/dataplane]
+  telemetry:
+    logs:
+      level: info

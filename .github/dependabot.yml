@@ -1,0 +1,24 @@
+version: 2
+updates:
+  # Go modules (first-party module at repo root)
+  - package-ecosystem: gomod
+    directory: "/"
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 10
+    groups:
+      otel:
+        patterns:
+          - "go.opentelemetry.io/*"
+
+  # GitHub Actions
+  - package-ecosystem: github-actions
+    directory: "/"
+    schedule:
+      interval: weekly
+
+  # Dockerfile base images
+  - package-ecosystem: docker
+    directory: "/"
+    schedule:
+      interval: weekly

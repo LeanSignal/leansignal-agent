@@ -1,0 +1,11 @@
+# Pinned SHA256 checksums for the VictoriaMetrics release assets we bundle.
+# Format (one per line):  <sha256>  <asset-filename>
+#
+# When bumping VM_VERSION, fetch the new assets' checksums and pin them here so
+# build-bundles.sh can verify downloads (run it with STRICT_VM=1 in CI).
+# Example:
+#   <sha256>  victoria-metrics-linux-amd64-v1.111.0.tar.gz
+#   <sha256>  victoria-metrics-linux-arm64-v1.111.0.tar.gz
+#   <sha256>  victoria-metrics-darwin-amd64-v1.111.0.tar.gz
+#   <sha256>  victoria-metrics-darwin-arm64-v1.111.0.tar.gz
+#   <sha256>  victoria-metrics-windows-amd64-v1.111.0.zip

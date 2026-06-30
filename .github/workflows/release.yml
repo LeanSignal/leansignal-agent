@@ -1,0 +1,93 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write   # create releases / upload assets
+  packages: write   # push images + chart to ghcr
+
+jobs:
+  release:
+    name: Build & publish release
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0   # goreleaser needs full history for the changelog
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Install OCB
+        run: go install go.opentelemetry.io/collector/cmd/builder@v0.141.0
+
+      - name: Stamp agent version from tag
+        run: |
+          VER="${GITHUB_REF_NAME#v}"
+          # Override dist.version (the only '^  version:' line) so the binary's
+          # --version reports the release tag.
+          sed -i -E "s/^  version: .*/  version: ${VER}/" manifest.yaml
+          grep -m1 '^  version:' manifest.yaml
+
+      - name: Generate distribution sources
+        run: "$(go env GOPATH)/bin/builder --config manifest.yaml --skip-compilation"
+
+      - name: Run goreleaser
+        uses: goreleaser/goreleaser-action@v6
+        with:
+          version: "~> v2"
+          args: release --clean
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build VM bundles & re-host VM archives
+        env:
+          VERSION: ${{ github.ref_name }}
+          STRICT_VM: "1"
+        run: |
+          sudo apt-get update && sudo apt-get install -y zip unzip
+          # strip leading 'v' for artifact naming consistency with goreleaser
+          export VERSION="${VERSION#v}"
+          bash scripts/release/build-bundles.sh
+
+      - name: Upload bundles to the release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh release upload "${{ github.ref_name }}" bundles/* --clobber
+
+  helm:
+    name: Publish Helm chart
+    runs-on: ubuntu-latest
+    needs: release
+    steps:
+      - uses: actions/checkout@v4
+      - uses: azure/setup-helm@v4
+
+      - name: Package & push chart (OCI)
+        run: |
+          VER="${GITHUB_REF_NAME#v}"
+          # Sync chart version + appVersion to the release tag.
+          sed -i -E "s/^version: .*/version: ${VER}/" deploy/helm/leansignal-agent/Chart.yaml
+          sed -i -E "s/^appVersion: .*/appVersion: \"${VER}\"/" deploy/helm/leansignal-agent/Chart.yaml
+          helm registry login ghcr.io -u ${{ github.actor }} -p ${{ secrets.GITHUB_TOKEN }}
+          helm dependency update deploy/helm/leansignal-agent
+          helm package deploy/helm/leansignal-agent -d .helm-out
+          helm push .helm-out/*.tgz oci://ghcr.io/leansignal/charts

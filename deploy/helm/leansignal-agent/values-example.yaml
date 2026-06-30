@@ -1,0 +1,32 @@
+# Example values for a real install. Copy and adjust.
+#
+#   helm install lsa oci://ghcr.io/leansignal/charts/leansignal-agent \
+#     -n leansignal --create-namespace -f my-values.yaml
+
+leansignal:
+  endpoint: "wss://api.leansignal.com/api/v1/agents/ws/"
+  agentKey:
+    # Prefer an existing Secret in production; inline shown here for clarity.
+    value: "replace-me"
+
+dataplane:
+  endpoint: "https://dataplane.example.com/api/v1/write"
+
+# Run a co-located local VictoriaMetrics and write everything to it.
+victoria-metrics-single:
+  enabled: true
+  server:
+    retentionPeriod: 1d
+    persistentVolume:
+      enabled: true
+      size: 20Gi
+
+# localVM.writeEndpoint is auto-derived from the bundled subchart when enabled.
+
+receivers:
+  otlp:
+    enabled: true
+  k8sCluster:
+    enabled: true
+  kubeletStats:
+    enabled: true

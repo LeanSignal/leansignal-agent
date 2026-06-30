@@ -1,0 +1,84 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  go:
+    name: Go build & test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Vet
+        run: go vet ./...
+
+      - name: Test (race)
+        run: go test -race ./components/...
+
+      - name: License headers
+        run: |
+          go install github.com/google/addlicense@latest
+          "$(go env GOPATH)/bin/addlicense" -check -s -l apache -c "LeanSignal" -y 2026 components/
+
+  golangci:
+    name: golangci-lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - uses: golangci/golangci-lint-action@v6
+        with:
+          version: latest
+
+  ocb:
+    name: OCB generate + compile
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Install OCB
+        run: go install go.opentelemetry.io/collector/cmd/builder@v0.141.0
+      - name: Generate distribution
+        run: "$(go env GOPATH)/bin/builder --config manifest.yaml --skip-compilation"
+      - name: Compile distribution
+        run: cd _build && CGO_ENABLED=0 go build -trimpath -o leansignal-agent .
+
+  helm:
+    name: Helm lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: azure/setup-helm@v4
+      - name: Lint chart
+        run: |
+          helm dependency update deploy/helm/leansignal-agent
+          helm lint deploy/helm/leansignal-agent
+          helm template lsa deploy/helm/leansignal-agent \
+            -f deploy/helm/leansignal-agent/values-example.yaml >/dev/null
+
+  shellcheck:
+    name: Shellcheck installers
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run shellcheck
+        run: |
+          sudo apt-get update && sudo apt-get install -y shellcheck
+          shellcheck scripts/install/*.sh scripts/release/*.sh

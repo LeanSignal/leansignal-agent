@@ -1,0 +1,118 @@
+# =============================================================================
+# LeanSignal Agent - example standalone collector configuration
+# =============================================================================
+#
+# This is the config used when running the agent directly on a host (Linux,
+# macOS, Windows) via the install scripts. For Kubernetes, use the Helm chart
+# under deploy/helm/leansignal-agent instead (it renders an equivalent config).
+#
+# Data flow:
+#   receivers ─▶ leansignalmetrics_tracker ─▶ LOCAL VictoriaMetrics (everything)
+#                                          └▶ leansignal_demand_filter ─▶ CENTRAL dataplane
+#                                                                          (only demanded series)
+#
+# Required environment variables (set by the installer / service unit):
+#   LEANSIGNAL_ENDPOINT            WebSocket control-plane URL, e.g.
+#                                  wss://api.leansignal.com/api/v1/agents/ws/
+#   LEANSIGNAL_AGENT_KEY           Per-agent authentication key (keep secret)
+#   LEANSIGNAL_DATAPLANE_ENDPOINT  Prometheus remote-write URL of the central
+#                                  store, e.g. https://dataplane.example.com/api/v1/write
+#
+# The LOCAL VictoriaMetrics endpoint defaults to the co-located single-node VM
+# installed alongside the agent (127.0.0.1:8428).
+# =============================================================================
+
+extensions:
+  # Liveness/readiness endpoint.
+  health_check:
+    endpoint: 127.0.0.1:13133
+
+  # Maintains the persistent control-plane WebSocket to LeanSignal:
+  #   - reports the discovered metric/timeseries index
+  #   - receives the demand list that drives leansignal_demand_filter
+  leansignal_edge_controller:
+    endpoint: "${env:LEANSIGNAL_ENDPOINT}"
+    agent_key: "${env:LEANSIGNAL_AGENT_KEY}"
+    reconnect_interval: 5s
+    ping_interval: 30s
+
+receivers:
+  # Accept OTLP from local applications / SDKs.
+  otlp:
+    protocols:
+      grpc:
+        endpoint: 127.0.0.1:4317
+      http:
+        endpoint: 127.0.0.1:4318
+
+  # Collect host system metrics.
+  hostmetrics:
+    collection_interval: 15s
+    scrapers:
+      cpu: {}
+      load: {}
+      memory: {}
+      disk: {}
+      filesystem: {}
+      network: {}
+      paging: {}
+      processes: {}
+
+processors:
+  batch:
+    send_batch_size: 5000
+    timeout: 1s
+
+  # Builds the metric/timeseries index and broadcasts it to the edge controller
+  # extension (which syncs it to LeanSignal). Pass-through: mutates nothing.
+  leansignalmetrics_tracker:
+    log_metrics: false
+    log_series: false
+
+  # Drops every metric that is not in the current demand list before it reaches
+  # the central dataplane. An empty/not-yet-received demand list blocks all.
+  leansignal_demand_filter:
+    log_filtered: false
+
+exporters:
+  # LOCAL VictoriaMetrics - full-fidelity, short retention. Receives everything.
+  prometheusremotewrite/local:
+    endpoint: http://127.0.0.1:8428/api/v1/write
+    tls:
+      insecure: true
+    retry_on_failure:
+      enabled: true
+
+  # CENTRAL dataplane - long retention. Receives only the demanded subset.
+  prometheusremotewrite/dataplane:
+    endpoint: "${env:LEANSIGNAL_DATAPLANE_ENDPOINT}"
+    retry_on_failure:
+      enabled: true
+    sending_queue:
+      enabled: true
+      num_consumers: 10
+      queue_size: 5000
+
+connectors:
+  # Fans a copy of all metrics from metrics/all into metrics/filtered. No routing
+  # logic here - demand filtering happens in the leansignal_demand_filter processor.
+  forward/demand_filter: {}
+
+service:
+  extensions: [health_check, leansignal_edge_controller]
+  pipelines:
+    # Everything: tracked, written to the local VM in full, and forwarded on.
+    metrics/all:
+      receivers: [otlp, hostmetrics]
+      processors: [leansignalmetrics_tracker, batch]
+      exporters: [prometheusremotewrite/local, forward/demand_filter]
+
+    # Only demanded metrics reach the central dataplane.
+    metrics/filtered:
+      receivers: [forward/demand_filter]
+      processors: [leansignal_demand_filter, batch]
+      exporters: [prometheusremotewrite/dataplane]
+
+  telemetry:
+    logs:
+      level: info

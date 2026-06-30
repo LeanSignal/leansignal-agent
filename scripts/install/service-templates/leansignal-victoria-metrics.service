@@ -1,0 +1,17 @@
+[Unit]
+Description=VictoriaMetrics (LeanSignal Agent local store)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/victoria-metrics \
+  --storageDataPath=/var/lib/leansignal-agent/vm \
+  --retentionPeriod=1d \
+  --httpListenAddr=127.0.0.1:8428
+Restart=on-failure
+RestartSec=5
+LimitNOFILE=1048576
+
+[Install]
+WantedBy=multi-user.target

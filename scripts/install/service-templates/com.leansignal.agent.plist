@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.leansignal.agent</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>/usr/local/bin/leansignal-agent</string>
+        <string>--config</string>
+        <string>/usr/local/etc/leansignal-agent/config.yaml</string>
+    </array>
+    <key>EnvironmentVariables</key>
+    <dict>
+        <!-- Populated by the installer from /usr/local/etc/leansignal-agent/agent.env values. -->
+        <key>LEANSIGNAL_ENDPOINT</key>
+        <string>__LEANSIGNAL_ENDPOINT__</string>
+        <key>LEANSIGNAL_AGENT_KEY</key>
+        <string>__LEANSIGNAL_AGENT_KEY__</string>
+        <key>LEANSIGNAL_DATAPLANE_ENDPOINT</key>
+        <string>__LEANSIGNAL_DATAPLANE_ENDPOINT__</string>
+    </dict>
+    <key>RunAtLoad</key>
+    <true/>
+    <key>KeepAlive</key>
+    <true/>
+    <key>StandardOutPath</key>
+    <string>/usr/local/var/log/leansignal-agent/agent.log</string>
+    <key>StandardErrorPath</key>
+    <string>/usr/local/var/log/leansignal-agent/agent.log</string>
+</dict>
+</plist>

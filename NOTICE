@@ -1,0 +1,38 @@
+LeanSignal Agent
+Copyright 2026 LeanSignal
+
+This product includes software developed at LeanSignal.
+
+Licensed under the Apache License, Version 2.0 (the "License"); you may not use
+the files in this repository except in compliance with the License. You may
+obtain a copy of the License in the LICENSE file or at
+http://www.apache.org/licenses/LICENSE-2.0
+
+-------------------------------------------------------------------------------
+This distribution is built on, bundles, and/or downloads at install time the
+following third-party software. Their respective licenses and notices apply.
+
+OpenTelemetry Collector / OpenTelemetry Collector Contrib
+  Copyright The OpenTelemetry Authors
+  Licensed under the Apache License, Version 2.0
+  https://github.com/open-telemetry/opentelemetry-collector
+  https://github.com/open-telemetry/opentelemetry-collector-contrib
+
+  The LeanSignal Agent is assembled with the OpenTelemetry Collector Builder
+  (OCB) and includes components from the upstream Collector and Collector
+  Contrib distributions.
+
+VictoriaMetrics
+  Copyright VictoriaMetrics
+  Licensed under the Apache License, Version 2.0
+  https://github.com/VictoriaMetrics/VictoriaMetrics
+
+  VictoriaMetrics single-node binaries are downloaded from the official
+  VictoriaMetrics releases and re-distributed unmodified as part of the
+  LeanSignal Agent install bundles. On Kubernetes, the upstream
+  victoria-metrics-single Helm chart is used as a dependency.
+
+-------------------------------------------------------------------------------
+Additional third-party Go module licenses are listed in the dependencies'
+respective source repositories and are governed by their own license terms.
+A full dependency list is available via `go list -m all` against go.mod.

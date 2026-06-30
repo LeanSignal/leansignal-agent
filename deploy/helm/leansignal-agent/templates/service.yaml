@@ -1,0 +1,21 @@
+{{- if .Values.receivers.otlp.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "leansignal-agent.fullname" . }}
+  labels:
+    {{- include "leansignal-agent.labels" . | nindent 4 }}
+spec:
+  type: {{ .Values.service.type }}
+  selector:
+    {{- include "leansignal-agent.selectorLabels" . | nindent 4 }}
+  ports:
+    - name: otlp-grpc
+      port: {{ .Values.service.otlpGRPCPort }}
+      targetPort: otlp-grpc
+      protocol: TCP
+    - name: otlp-http
+      port: {{ .Values.service.otlpHTTPPort }}
+      targetPort: otlp-http
+      protocol: TCP
+{{- end }}

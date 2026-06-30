@@ -1,0 +1,85 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "leansignal-agent.fullname" . }}
+  labels:
+    {{- include "leansignal-agent.labels" . | nindent 4 }}
+data:
+  config.yaml: |
+    extensions:
+      health_check:
+        endpoint: 0.0.0.0:13133
+      leansignal_edge_controller:
+        endpoint: "${env:LEANSIGNAL_ENDPOINT}"
+        agent_key: "${env:LEANSIGNAL_AGENT_KEY}"
+        reconnect_interval: 5s
+        ping_interval: 30s
+
+    receivers:
+    {{- if .Values.receivers.otlp.enabled }}
+      otlp:
+        protocols:
+          grpc:
+            endpoint: 0.0.0.0:4317
+          http:
+            endpoint: 0.0.0.0:4318
+    {{- end }}
+    {{- if .Values.receivers.k8sCluster.enabled }}
+      k8s_cluster:
+        collection_interval: 30s
+    {{- end }}
+    {{- if .Values.receivers.kubeletStats.enabled }}
+      kubeletstats:
+        collection_interval: 15s
+        auth_type: serviceAccount
+        endpoint: "https://${env:K8S_NODE_NAME}:10250"
+        insecure_skip_verify: true
+    {{- end }}
+
+    processors:
+      memory_limiter:
+        check_interval: 1s
+        limit_percentage: 80
+        spike_limit_percentage: 20
+      batch:
+        send_batch_size: 5000
+        timeout: 1s
+      leansignalmetrics_tracker:
+        log_metrics: false
+        log_series: false
+      leansignal_demand_filter:
+        log_filtered: false
+
+    exporters:
+      prometheusremotewrite/local:
+        endpoint: {{ include "leansignal-agent.localVMEndpoint" . | quote }}
+        tls:
+          insecure: true
+        retry_on_failure:
+          enabled: true
+      prometheusremotewrite/dataplane:
+        endpoint: "${env:LEANSIGNAL_DATAPLANE_ENDPOINT}"
+        retry_on_failure:
+          enabled: true
+        sending_queue:
+          enabled: true
+          num_consumers: 10
+          queue_size: 5000
+
+    connectors:
+      forward/demand_filter: {}
+
+    service:
+      extensions: [health_check, leansignal_edge_controller]
+      pipelines:
+        metrics/all:
+          receivers: [{{ include "leansignal-agent.metricsReceivers" . }}]
+          processors: [memory_limiter, leansignalmetrics_tracker, batch]
+          exporters: [prometheusremotewrite/local, forward/demand_filter]
+        metrics/filtered:
+          receivers: [forward/demand_filter]
+          processors: [leansignal_demand_filter, batch]
+          exporters: [prometheusremotewrite/dataplane]
+      telemetry:
+        logs:
+          level: {{ .Values.logLevel }}

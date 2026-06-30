@@ -1,0 +1,78 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "leansignal-agent.fullname" . }}
+  labels:
+    {{- include "leansignal-agent.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.replicaCount }}
+  selector:
+    matchLabels:
+      {{- include "leansignal-agent.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      annotations:
+        # Roll pods when the rendered config changes.
+        checksum/config: {{ include (print $.Template.BasePath "/configmap.yaml") . | sha256sum }}
+        {{- with .Values.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      labels:
+        {{- include "leansignal-agent.selectorLabels" . | nindent 8 }}
+    spec:
+      serviceAccountName: {{ include "leansignal-agent.serviceAccountName" . }}
+      {{- with .Values.pullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: agent
+          image: {{ include "leansignal-agent.image" . | quote }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          args: ["--config", "/etc/leansignal-agent/config.yaml"]
+          ports:
+            - { name: otlp-grpc, containerPort: 4317 }
+            - { name: otlp-http, containerPort: 4318 }
+            - { name: health, containerPort: 13133 }
+          env:
+            - name: K8S_NODE_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: spec.nodeName
+            - name: LEANSIGNAL_ENDPOINT
+              value: {{ .Values.leansignal.endpoint | quote }}
+            - name: LEANSIGNAL_DATAPLANE_ENDPOINT
+              value: {{ .Values.dataplane.endpoint | quote }}
+            - name: LEANSIGNAL_AGENT_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "leansignal-agent.agentKeySecretName" . }}
+                  key: {{ .Values.leansignal.agentKey.existingSecretKey | default "agent-key" }}
+          livenessProbe:
+            httpGet: { path: /, port: health }
+            initialDelaySeconds: 10
+          readinessProbe:
+            httpGet: { path: /, port: health }
+            initialDelaySeconds: 5
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          volumeMounts:
+            - name: config
+              mountPath: /etc/leansignal-agent
+              readOnly: true
+      volumes:
+        - name: config
+          configMap:
+            name: {{ include "leansignal-agent.fullname" . }}
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}

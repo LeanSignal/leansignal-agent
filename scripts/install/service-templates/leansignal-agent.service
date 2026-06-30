@@ -1,0 +1,14 @@
+[Unit]
+Description=LeanSignal Agent (OpenTelemetry Collector)
+After=network-online.target leansignal-victoria-metrics.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+EnvironmentFile=/etc/leansignal-agent/agent.env
+ExecStart=/usr/local/bin/leansignal-agent --config /etc/leansignal-agent/config.yaml
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

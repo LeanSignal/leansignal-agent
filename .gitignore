@@ -1,0 +1,19 @@
+# OCB build output (generated distribution + compiled binary)
+/_build/
+
+# goreleaser output
+/dist/
+
+# Helm chart dependencies (pulled by `helm dependency build`)
+deploy/helm/*/charts/
+deploy/helm/*/Chart.lock
+
+# Local env / secrets
+*.env
+.env
+
+# OS cruft
+.DS_Store
+
+# Editor/agent context (not part of the public repo)
+CLAUDE.md
