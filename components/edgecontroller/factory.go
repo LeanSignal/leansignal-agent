@@ -44,10 +44,11 @@ func NewFactory() extension.Factory {
 
 func createDefaultConfig() component.Config {
 	return &Config{
-		Endpoint:          "ws://localhost:8070/api/v1/agents/ws/",
+		Endpoint:          "localhost:9090",
 		AgentKey:          "",
 		ReconnectInterval: 5 * time.Second,
 		PingInterval:      30 * time.Second,
+		LocalVMQueryURL:   "http://127.0.0.1:8428",
 	}
 }
 

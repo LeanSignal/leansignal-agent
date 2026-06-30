@@ -9,6 +9,7 @@ extensions:
     insecure: true                            # local h2c (no TLS)
     reconnect_interval: 5s
     ping_interval: 30s
+    local_vm_query_url: "http://victoriametrics:8428"  # UI edit-mode queries tunnel here
 
 receivers:
   otlp:

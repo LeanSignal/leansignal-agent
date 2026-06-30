@@ -33,6 +33,7 @@ import (
 //	    insecure: false                    # true for local h2c (no TLS)
 //	    reconnect_interval: 5s
 //	    ping_interval: 30s
+//	    local_vm_query_url: "http://127.0.0.1:8428"
 type Config struct {
 	// Endpoint is the gRPC target of the LeanSignal backend, in host:port form
 	// (no scheme). Example: lean-api:443 (prod) or localhost:9090 (local dev).
@@ -51,6 +52,13 @@ type Config struct {
 	// PingInterval is how often to send app-level heartbeats (also the gRPC
 	// keepalive interval).
 	PingInterval time.Duration `mapstructure:"ping_interval"`
+
+	// LocalVMQueryURL is the base URL of the agent's local VictoriaMetrics query
+	// API (e.g. http://127.0.0.1:8428 — distinct from the OTel write endpoint
+	// .../api/v1/write). lean-api proxies the UI's edit-mode queries down the
+	// control stream and the agent runs them here. If empty, the agent answers
+	// QueryRequests with a 503 ("query disabled").
+	LocalVMQueryURL string `mapstructure:"local_vm_query_url"`
 }
 
 // Validate checks if the configuration is valid.

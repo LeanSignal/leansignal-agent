@@ -15,6 +15,7 @@ data:
         insecure: {{ .Values.leansignal.insecure | default false }}
         reconnect_interval: 5s
         ping_interval: 30s
+        local_vm_query_url: {{ include "leansignal-agent.localVMQueryEndpoint" . | quote }}
 
     receivers:
     {{- if .Values.receivers.otlp.enabled }}

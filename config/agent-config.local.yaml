@@ -10,6 +10,7 @@
 #   LEANSIGNAL_AGENT_KEY           deadbeef-dead-beef-dead-beefdeadbeef
 #   LEANSIGNAL_LOCAL_VM            http://localhost:8482/api/v1/write   (vm-ag, everything)
 #   LEANSIGNAL_DATAPLANE_ENDPOINT  http://localhost:8483/api/v1/write   (dataplane, demanded)
+#   LEANSIGNAL_LOCAL_VM_QUERY      http://localhost:8482                (vm-ag query base)
 #
 # The dataplane writes go straight to a local VM (no vmauth in dev).
 # =============================================================================
@@ -23,6 +24,8 @@ extensions:
     insecure: true        # local gRPC over h2c (no TLS)
     reconnect_interval: 5s
     ping_interval: 30s
+    # lean-api proxies UI edit-mode queries here; the agent runs them against vm-ag.
+    local_vm_query_url: "${env:LEANSIGNAL_LOCAL_VM_QUERY}"
 
 receivers:
   otlp:

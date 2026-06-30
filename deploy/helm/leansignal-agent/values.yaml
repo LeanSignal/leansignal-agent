@@ -34,6 +34,10 @@ localVM:
   # Prometheus remote-write endpoint of the local store. When the bundled
   # subchart is enabled, this default targets its service.
   writeEndpoint: ""
+  # Query base URL (no /api/v1/write) of the local store. lean-api proxies the
+  # UI's edit-mode queries down the control stream and the agent runs them here.
+  # Leave empty to derive it from writeEndpoint / the bundled subchart.
+  queryEndpoint: ""
 
 receivers:
   otlp:

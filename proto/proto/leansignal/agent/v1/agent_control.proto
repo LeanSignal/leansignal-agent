@@ -89,6 +89,36 @@ message GetStatus {}
 // UpdateConfig pushes an opaque config blob to the agent.
 message UpdateConfig { bytes config = 1; }
 
+// ---- query tunnel (server -> agent request, agent -> server response) ----
+//
+// lean-api proxies the UI's edit-mode VictoriaMetrics queries to the agent's
+// private local VM over this stream. The agent runs the (read-only, allow-listed)
+// HTTP request against its local VM and returns the response. correlation_id pairs
+// the QueryRequest with its QueryResponse.
+
+// Header is a single HTTP header with one or more values.
+message Header {
+  string name = 1;
+  repeated string values = 2;
+}
+
+// QueryRequest is a read-only HTTP query the agent runs against its local VM.
+message QueryRequest {
+  string method = 1;            // "GET" | "POST"
+  string path = 2;              // e.g. "/api/v1/query_range" (lean-api strips its own prefix)
+  string raw_query = 3;         // URL-encoded query string (GET params)
+  bytes body = 4;               // request body (Perses sometimes POSTs query/series)
+  repeated Header headers = 5;  // forwarded request headers (Content-Type, Accept)
+}
+
+// QueryResponse carries the agent's local-VM HTTP response (or an agent-side error).
+message QueryResponse {
+  int32 status_code = 1;        // HTTP status from the local VM (or agent-synthesised)
+  bytes body = 2;               // response body
+  repeated Header headers = 3;  // response headers (Content-Type, Content-Encoding)
+  string error = 4;             // agent-side failure (offline/allowlist/too-large); empty on HTTP success
+}
+
 // ---- envelopes ----
 
 // AgentMessage is sent from the agent to lean-api.
@@ -103,6 +133,7 @@ message AgentMessage {
     IndexUpdate index_update = 5;
     IndexDelete index_delete = 6;
     CommandResult command_result = 7;
+    QueryResponse query_response = 8;   // reply to a server-pushed QueryRequest
   }
 }
 
@@ -117,5 +148,6 @@ message ServerMessage {
     DemandSet demand_set = 4;
     GetStatus get_status = 5;
     UpdateConfig update_config = 6;
+    QueryRequest query_request = 7;     // proxy the UI's VM query to the agent
   }
 }

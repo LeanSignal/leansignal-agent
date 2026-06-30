@@ -13,12 +13,14 @@ VM_VERSION     := $(shell cat VM_VERSION 2>/dev/null)
 # `make local-run` settings - override on the command line if your local setup differs.
 # (Keep these free of trailing inline comments: make would fold the spaces into the value.)
 # LOCAL_ENDPOINT  = local lean-api gRPC target (h2c)
-# LOCAL_VM        = vm-ag (everything)
+# LOCAL_VM        = vm-ag (everything) write endpoint
 # LOCAL_DATAPLANE = dataplane (demanded subset)
+# LOCAL_VM_QUERY  = vm-ag query base (UI edit-mode queries tunnel here)
 LOCAL_ENDPOINT  ?= localhost:9090
 LOCAL_AGENT_KEY ?= deadbeef-dead-beef-dead-beefdeadbeef
 LOCAL_VM        ?= http://localhost:8482/api/v1/write
 LOCAL_DATAPLANE ?= http://localhost:8483/api/v1/write
+LOCAL_VM_QUERY  ?= http://localhost:8482
 
 .DEFAULT_GOAL := help
 
@@ -72,6 +74,7 @@ local-run: compile ## Build and run against a local lean-api (:8080) + local Vic
 	LEANSIGNAL_AGENT_KEY="$(LOCAL_AGENT_KEY)" \
 	LEANSIGNAL_LOCAL_VM="$(LOCAL_VM)" \
 	LEANSIGNAL_DATAPLANE_ENDPOINT="$(LOCAL_DATAPLANE)" \
+	LEANSIGNAL_LOCAL_VM_QUERY="$(LOCAL_VM_QUERY)" \
 	$(BUILD_DIR)/$(BINARY) --config config/agent-config.local.yaml
 
 .PHONY: snapshot

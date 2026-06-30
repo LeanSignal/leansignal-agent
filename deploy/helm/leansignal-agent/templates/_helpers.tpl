@@ -67,3 +67,17 @@ app.kubernetes.io/instance: {{ .Release.Name }}
 {{- "http://127.0.0.1:8428/api/v1/write" -}}
 {{- end -}}
 {{- end -}}
+
+{{/* Local VM query base (no /api/v1/write): explicit value, else the write endpoint
+     with its remote-write path trimmed, else the bundled subchart's service. */}}
+{{- define "leansignal-agent.localVMQueryEndpoint" -}}
+{{- if .Values.localVM.queryEndpoint -}}
+{{- .Values.localVM.queryEndpoint -}}
+{{- else if .Values.localVM.writeEndpoint -}}
+{{- trimSuffix "/api/v1/write" .Values.localVM.writeEndpoint -}}
+{{- else if (index .Values "victoria-metrics-single" "enabled") -}}
+{{- printf "http://%s-victoria-metrics-single-server.%s.svc:8428" .Release.Name .Release.Namespace -}}
+{{- else -}}
+{{- "http://127.0.0.1:8428" -}}
+{{- end -}}
+{{- end -}}
