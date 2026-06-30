@@ -11,7 +11,7 @@ require (
 	go.opentelemetry.io/collector/extension v1.47.0
 	go.opentelemetry.io/collector/pdata v1.47.0
 	go.opentelemetry.io/collector/processor v1.47.0
-	go.uber.org/zap v1.27.1
+	go.uber.org/zap v1.28.0
 	google.golang.org/grpc v1.77.0
 )
 
