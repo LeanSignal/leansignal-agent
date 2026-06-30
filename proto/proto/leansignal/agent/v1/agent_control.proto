@@ -1,0 +1,121 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright 2026 LeanSignal
+//
+// LeanSignal agent control-plane protocol, v1.
+//
+// The agent (in a private network) dials out to lean-api and opens ONE long-lived
+// bidirectional stream (AgentControl.Connect). Both directions carry a oneof
+// envelope; the server can push commands to the agent over the open stream, so no
+// inbound connectivity to the agent is required. Authentication is via the
+// "x-agent-key" gRPC metadata header on stream open.
+//
+// Versioning: breaking changes mint a new package (leansignal.agent.v2, ...).
+// lean-api registers the last N service versions concurrently so mixed agent
+// fleets keep working. Additive (non-breaking) field changes stay within v1.
+syntax = "proto3";
+
+package leansignal.agent.v1;
+
+option go_package = "github.com/leansignal/leansignal-agent/proto/gen/leansignal/agent/v1;agentv1";
+
+// AgentControl is the bidirectional control channel between an agent and lean-api.
+service AgentControl {
+  // Connect opens the persistent control stream. The agent authenticates with the
+  // "x-agent-key" metadata header. It stays open for the lifetime of the agent's
+  // connection; either side may send messages at any time.
+  rpc Connect(stream AgentMessage) returns (stream ServerMessage);
+}
+
+// Label is a single metric label (key/value).
+message Label {
+  string name = 1;
+  string value = 2;
+}
+
+// DiscoveredSeries is a newly-seen timeseries reported to the index.
+message DiscoveredSeries {
+  bytes fingerprint = 1;   // 16-byte xxh3-128 of the series
+  string metric_name = 2;
+  repeated Label labels = 3;
+}
+
+// ActiveSeries refreshes sample counts for a known timeseries.
+message ActiveSeries {
+  bytes fingerprint = 1;
+  int64 samples = 2;
+  int64 last_update_ms = 3; // unix millis
+}
+
+// ---- agent -> server bodies ----
+
+message Hello {
+  string version = 1;
+}
+
+message Ping {
+  int32 known_cache_size = 1;
+  int32 discovered_cache_size = 2;
+  int32 pending_backend_updates = 3;
+  int32 demand_cache_size = 4;
+  int64 demand_last_update = 5;
+}
+
+message IndexCreate { repeated DiscoveredSeries series = 1; }
+message IndexUpdate { repeated ActiveSeries series = 1; }
+message IndexDelete { repeated bytes fingerprints = 1; }
+
+// CommandResult is the agent's reply to a server-initiated command.
+message CommandResult {
+  bool success = 1;
+  string message = 2;
+}
+
+// ---- server -> agent bodies ----
+
+message Pong {}
+
+// Ack acknowledges an agent-initiated message (index op / ping) by correlation_id.
+message Ack {
+  bool success = 1;
+  string message = 2;
+}
+
+// DemandSet pushes the full list of demanded Prometheus metric names.
+message DemandSet { repeated string metrics = 1; }
+
+// GetStatus asks the agent to report its current status (reply via CommandResult).
+message GetStatus {}
+
+// UpdateConfig pushes an opaque config blob to the agent.
+message UpdateConfig { bytes config = 1; }
+
+// ---- envelopes ----
+
+// AgentMessage is sent from the agent to lean-api.
+message AgentMessage {
+  // correlation_id ties this message to an expected Ack (0 = fire-and-forget),
+  // or echoes a server command's id when carrying a CommandResult.
+  uint64 correlation_id = 1;
+  oneof body {
+    Hello hello = 2;
+    Ping ping = 3;
+    IndexCreate index_create = 4;
+    IndexUpdate index_update = 5;
+    IndexDelete index_delete = 6;
+    CommandResult command_result = 7;
+  }
+}
+
+// ServerMessage is sent from lean-api to the agent.
+message ServerMessage {
+  // correlation_id echoes the agent's id when this is an Ack, or carries a new id
+  // for a server command that expects a CommandResult.
+  uint64 correlation_id = 1;
+  oneof body {
+    Pong pong = 2;
+    Ack ack = 3;
+    DemandSet demand_set = 4;
+    GetStatus get_status = 5;
+    UpdateConfig update_config = 6;
+  }
+}

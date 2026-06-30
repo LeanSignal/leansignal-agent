@@ -12,11 +12,11 @@
 #                                                                          (only demanded series)
 #
 # Required environment variables (set by the installer / service unit):
-#   LEANSIGNAL_ENDPOINT            WebSocket control-plane URL, e.g.
-#                                  wss://api.leansignal.com/api/v1/agents/ws/
+#   LEANSIGNAL_ENDPOINT            gRPC control-plane target (host:port), e.g.
+#                                  api.leansignal.com:443
 #   LEANSIGNAL_AGENT_KEY           Per-agent authentication key (keep secret)
 #   LEANSIGNAL_DATAPLANE_ENDPOINT  Prometheus remote-write URL of the central
-#                                  store, e.g. https://dataplane.example.com/api/v1/write
+#                                  ingest (vmauth), e.g. https://ingest.example.com/api/v1/write
 #
 # The LOCAL VictoriaMetrics endpoint defaults to the co-located single-node VM
 # installed alongside the agent (127.0.0.1:8428).
@@ -27,12 +27,14 @@ extensions:
   health_check:
     endpoint: 127.0.0.1:13133
 
-  # Maintains the persistent control-plane WebSocket to LeanSignal:
+  # Maintains the persistent gRPC control stream to LeanSignal:
   #   - reports the discovered metric/timeseries index
   #   - receives the demand list that drives leansignal_demand_filter
+  # endpoint is a gRPC target (host:port, no scheme), e.g. api.leansignal.com:443.
   leansignal_edge_controller:
     endpoint: "${env:LEANSIGNAL_ENDPOINT}"
     agent_key: "${env:LEANSIGNAL_AGENT_KEY}"
+    insecure: false        # true only for local h2c (no TLS)
     reconnect_interval: 5s
     ping_interval: 30s
 
@@ -45,7 +47,9 @@ receivers:
       http:
         endpoint: 127.0.0.1:4318
 
-  # Collect host system metrics.
+  # Collect host system metrics. These scrapers work on Linux, macOS and Windows.
+  # (The `processes` and `process` scrapers are Linux/Windows-only — add them in a
+  # platform-specific override; they fail to start on macOS.)
   hostmetrics:
     collection_interval: 15s
     scrapers:
@@ -56,7 +60,6 @@ receivers:
       filesystem: {}
       network: {}
       paging: {}
-      processes: {}
 
 processors:
   batch:
@@ -84,11 +87,14 @@ exporters:
       enabled: true
 
   # CENTRAL dataplane - long retention. Receives only the demanded subset.
+  # Writes go through the vmauth ingest proxy, which authenticates the agent key.
   prometheusremotewrite/dataplane:
     endpoint: "${env:LEANSIGNAL_DATAPLANE_ENDPOINT}"
+    headers:
+      Authorization: "Bearer ${env:LEANSIGNAL_AGENT_KEY}"
     retry_on_failure:
       enabled: true
-    sending_queue:
+    remote_write_queue:
       enabled: true
       num_consumers: 10
       queue_size: 5000

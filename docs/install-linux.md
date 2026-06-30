@@ -9,7 +9,7 @@ services. Requires root (the script uses `sudo`). amd64 and arm64 are supported.
 curl -fsSL https://raw.githubusercontent.com/LeanSignal/leansignal-agent/main/scripts/install/install.sh \
   | sudo bash -s -- \
     --agent-key YOUR_KEY \
-    --endpoint wss://api.leansignal.com/api/v1/agents/ws/ \
+    --endpoint api.leansignal.com:443 \
     --dataplane-endpoint https://dataplane.example.com/api/v1/write
 ```
 
@@ -21,7 +21,7 @@ curl -fsSL https://raw.githubusercontent.com/LeanSignal/leansignal-agent/main/sc
 | Flag | Meaning |
 |------|---------|
 | `--agent-key` | agent auth key (required) |
-| `--endpoint` | LeanSignal WebSocket URL (required) |
+| `--endpoint` | LeanSignal gRPC endpoint (host:port) (required) |
 | `--dataplane-endpoint` | central remote-write URL (required) |
 | `--version vX.Y.Z` | install a specific version (default: latest) |
 | `--no-vm` | don't install the local VictoriaMetrics |

@@ -290,3 +290,5 @@ replaces:
   # leansignal custom components live in this repo. OCB runs from the _build/
   # output dir, so the path is relative to _build/ (i.e. the repo root is "../").
   - github.com/leansignal/leansignal-agent => ../
+  # the control-plane protobuf contract is a nested module in this repo
+  - github.com/leansignal/leansignal-agent/proto => ../proto

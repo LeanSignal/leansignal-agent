@@ -10,6 +10,7 @@ control plane.
 ### Users
 - [Usage](usage.md) — sending metrics, querying the local store, how demand works, troubleshooting
 - [Configuration](configuration.md) — settings, env vars, pipelines
+- [Host metrics (macOS) & self-monitoring](host-and-self-monitoring.md) — collect CPU/memory/disk, monitor the collector itself
 - Install:
   - [Kubernetes](install-kubernetes.md)
   - [Linux](install-linux.md)

@@ -4,13 +4,13 @@
 #     -n leansignal --create-namespace -f my-values.yaml
 
 leansignal:
-  endpoint: "wss://api.leansignal.com/api/v1/agents/ws/"
+  endpoint: "api.leansignal.com:443"   # gRPC control-plane target (host:port)
   agentKey:
     # Prefer an existing Secret in production; inline shown here for clarity.
     value: "replace-me"
 
 dataplane:
-  endpoint: "https://dataplane.example.com/api/v1/write"
+  endpoint: "https://ingest.example.com/api/v1/write"   # vmauth ingest
 
 # Run a co-located local VictoriaMetrics and write everything to it.
 victoria-metrics-single:

@@ -1,0 +1,83 @@
+# =============================================================================
+# LeanSignal Agent - LOCAL DEVELOPMENT config (used by `make local-run`).
+#
+# Unlike agent-config.example.yaml (host installs, local VM hard-coded to
+# 127.0.0.1:8428), this dev config reads ALL endpoints from the environment so
+# `make local-run` can point it at a local lean-api and a local VictoriaMetrics.
+#
+# Env (set by `make local-run`):
+#   LEANSIGNAL_ENDPOINT            localhost:9090  (local lean-api gRPC, h2c)
+#   LEANSIGNAL_AGENT_KEY           deadbeef-dead-beef-dead-beefdeadbeef
+#   LEANSIGNAL_LOCAL_VM            http://localhost:8482/api/v1/write   (vm-ag, everything)
+#   LEANSIGNAL_DATAPLANE_ENDPOINT  http://localhost:8483/api/v1/write   (dataplane, demanded)
+#
+# The dataplane writes go straight to a local VM (no vmauth in dev).
+# =============================================================================
+
+extensions:
+  health_check:
+    endpoint: 127.0.0.1:13133
+  leansignal_edge_controller:
+    endpoint: "${env:LEANSIGNAL_ENDPOINT}"
+    agent_key: "${env:LEANSIGNAL_AGENT_KEY}"
+    insecure: true        # local gRPC over h2c (no TLS)
+    reconnect_interval: 5s
+    ping_interval: 30s
+
+receivers:
+  otlp:
+    protocols:
+      grpc:
+        endpoint: 127.0.0.1:4317
+      http:
+        endpoint: 127.0.0.1:4318
+  hostmetrics:
+    collection_interval: 15s
+    scrapers:
+      cpu: {}
+      load: {}
+      memory: {}
+      disk: {}
+      filesystem: {}
+      network: {}
+
+processors:
+  batch:
+    send_batch_size: 5000
+    timeout: 1s
+  leansignalmetrics_tracker:
+    log_metrics: false
+    log_series: false
+  leansignal_demand_filter:
+    log_filtered: true
+
+exporters:
+  # Local "vm-ag" - receives everything.
+  prometheusremotewrite/local:
+    endpoint: "${env:LEANSIGNAL_LOCAL_VM}"
+    tls:
+      insecure: true
+  # Dataplane - receives only the demanded subset (points at the same local VM
+  # by default in dev; override LEANSIGNAL_DATAPLANE_ENDPOINT to separate them).
+  prometheusremotewrite/dataplane:
+    endpoint: "${env:LEANSIGNAL_DATAPLANE_ENDPOINT}"
+    tls:
+      insecure: true
+
+connectors:
+  forward/demand_filter: {}
+
+service:
+  extensions: [health_check, leansignal_edge_controller]
+  pipelines:
+    metrics/all:
+      receivers: [otlp, hostmetrics]
+      processors: [leansignalmetrics_tracker, batch]
+      exporters: [prometheusremotewrite/local, forward/demand_filter]
+    metrics/filtered:
+      receivers: [forward/demand_filter]
+      processors: [leansignal_demand_filter, batch]
+      exporters: [prometheusremotewrite/dataplane]
+  telemetry:
+    logs:
+      level: info

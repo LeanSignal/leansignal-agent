@@ -9,7 +9,7 @@ co-located VictoriaMetrics via the upstream `victoria-metrics-single` subchart.
 helm upgrade --install leansignal-agent \
   oci://ghcr.io/leansignal/charts/leansignal-agent \
   --namespace leansignal --create-namespace \
-  --set leansignal.endpoint="wss://api.leansignal.com/api/v1/agents/ws/" \
+  --set leansignal.endpoint="api.leansignal.com:443" \
   --set leansignal.agentKey.value="YOUR_KEY" \
   --set dataplane.endpoint="https://dataplane.example.com/api/v1/write" \
   --set victoria-metrics-single.enabled=true
@@ -29,7 +29,7 @@ There is also a convenience wrapper: [`scripts/install/k8s-install.sh`](../scrip
 
 ```yaml
 leansignal:
-  endpoint: wss://api.leansignal.com/api/v1/agents/ws/
+  endpoint: api.leansignal.com:443
   agentKey:
     existingSecret: my-agent-secret
     existingSecretKey: agent-key

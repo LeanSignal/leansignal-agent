@@ -1,428 +1,138 @@
 // Copyright 2026 LeanSignal
-//
-// Licensed under the Apache License, Version 2.0 (the "License");
-// you may not use this file except in compliance with the License.
-// You may obtain a copy of the License at
-//
-//     http://www.apache.org/licenses/LICENSE-2.0
-//
-// Unless required by applicable law or agreed to in writing, software
-// distributed under the License is distributed on an "AS IS" BASIS,
-// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-// See the License for the specific language governing permissions and
-// limitations under the License.
-//
 // SPDX-License-Identifier: Apache-2.0
 
-// leansignaledgecontroller/timeseries_processor_test.go
 package leansignaledgecontroller
 
 import (
+	"bytes"
 	"context"
-	"encoding/json"
 	"testing"
 	"time"
 
-	"nhooyr.io/websocket/wsjson"
+	agentv1 "github.com/leansignal/leansignal-agent/proto/gen/leansignal/agent/v1"
 )
 
-// startClientReader starts a goroutine that reads acks from the client connection
-// and resolves pending commands. This mimics what readLoop does in production.
-func startClientReader(ctx context.Context, ext *edgeControllerExtension) {
-	go func() {
-		for {
-			select {
-			case <-ctx.Done():
-				return
-			default:
-			}
-
-			ext.mu.Lock()
-			conn := ext.conn
-			ext.mu.Unlock()
-
-			if conn == nil {
-				return
-			}
-
-			var msg Message
-			if err := wsjson.Read(ctx, conn, &msg); err != nil {
-				return
-			}
-
-			// Process ack messages
-			if msg.Type == MessageTypeAck && msg.ID != "" {
-				var ack AckPayload
-				if payloadBytes, err := json.Marshal(msg.Payload); err == nil {
-					json.Unmarshal(payloadBytes, &ack)
-				}
-				ext.resolvePending(msg.ID, ack)
-			}
-		}
-	}()
+func hk(b string) HashKey {
+	var k HashKey
+	copy(k[:], b)
+	return k
 }
 
-func TestSendDiscoveredTimeseriesBatch_Success(t *testing.T) {
-	ext := newTestExtension()
-	serverConn := connectToMockBackend(t, ext)
+// Discovered cache -> IndexCreate over gRPC: verifies the protobuf conversion
+// (fingerprint bytes, metric name, flattened labels) and that a successful ack
+// purges the batch from the cache.
+func TestProcessorDiscoveredBatchConversion(t *testing.T) {
+	fake, e, cleanup := startAgentAgainst(t, nil)
+	defer cleanup()
 
-	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
-	defer cancel()
-
-	// Start client reader to process acks
-	startClientReader(ctx, ext)
-
-	// Create test items
-	items := []DiscoveredTimeseriesItem{
-		{HashKey: "abc123", Name: "test_metric_1", Labels: []string{"env", "prod"}},
-		{HashKey: "def456", Name: "test_metric_2", Labels: []string{"region", "us-east"}},
-	}
-
-	// Start goroutine to simulate backend reading and sending ack
-	go func() {
-		var msg Message
-		if err := wsjson.Read(ctx, serverConn, &msg); err != nil {
-			return
-		}
-
-		// Verify it's a command with metrics_index_create
-		if msg.Type != MessageTypeCommand {
-			t.Errorf("expected command type, got %s", msg.Type)
-		}
-
-		payloadBytes, _ := json.Marshal(msg.Payload)
-		var cmd CommandPayload
-		json.Unmarshal(payloadBytes, &cmd)
-
-		if cmd.Command != CmdMetricsIndexCreate {
-			t.Errorf("expected command %s, got %s", CmdMetricsIndexCreate, cmd.Command)
-		}
-
-		// Send success ack
-		ack := Message{
-			Type:      MessageTypeAck,
-			ID:        msg.ID,
-			Timestamp: time.Now().UTC(),
-			Payload: AckPayload{
-				Status:  "success",
-				Message: "created",
-			},
-		}
-		wsjson.Write(ctx, serverConn, ack)
-	}()
-
-	// Send the batch
-	err := ext.sendDiscoveredTimeseriesBatch(ctx, items)
-	if err != nil {
-		t.Fatalf("expected no error, got %v", err)
-	}
-}
-
-func TestSendActiveTimeseriesBatch_Success(t *testing.T) {
-	ext := newTestExtension()
-	serverConn := connectToMockBackend(t, ext)
-
-	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
-	defer cancel()
-
-	// Start client reader to process acks
-	startClientReader(ctx, ext)
-
-	// Add some active timeseries items
-	items := []KnownActiveTimeseriesItem{
-		{HashKey: HashKey{0x01}, TotalSamples: 100, LastUpdate: 1700000000000},
-		{HashKey: HashKey{0x02}, TotalSamples: 200, LastUpdate: 1700000000000},
-	}
-
-	// Start goroutine to simulate backend reading and sending ack
-	go func() {
-		var msg Message
-		if err := wsjson.Read(ctx, serverConn, &msg); err != nil {
-			return
-		}
-
-		// Verify it's a command with metrics_index_update
-		if msg.Type != MessageTypeCommand {
-			t.Errorf("expected command type, got %s", msg.Type)
-		}
-
-		payloadBytes, _ := json.Marshal(msg.Payload)
-		var cmd CommandPayload
-		json.Unmarshal(payloadBytes, &cmd)
-
-		if cmd.Command != CmdMetricsIndexUpdate {
-			t.Errorf("expected command %s, got %s", CmdMetricsIndexUpdate, cmd.Command)
-		}
-
-		// Send success ack
-		ack := Message{
-			Type:      MessageTypeAck,
-			ID:        msg.ID,
-			Timestamp: time.Now().UTC(),
-			Payload: AckPayload{
-				Status:  "success",
-				Message: "updated",
-			},
-		}
-		wsjson.Write(ctx, serverConn, ack)
-	}()
-
-	// Send the batch
-	err := ext.sendActiveTimeseriesBatch(ctx, items)
-	if err != nil {
-		t.Fatalf("expected no error, got %v", err)
-	}
-}
-
-func TestSendInactiveTimeseriesBatch_Success(t *testing.T) {
-	ext := newTestExtension()
-	serverConn := connectToMockBackend(t, ext)
-
-	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
-	defer cancel()
-
-	// Start client reader to process acks
-	startClientReader(ctx, ext)
-
-	// Create inactive keys
-	keys := []HashKey{{0x01}, {0x02}, {0x03}}
-
-	// Start goroutine to simulate backend reading and sending ack
-	go func() {
-		var msg Message
-		if err := wsjson.Read(ctx, serverConn, &msg); err != nil {
-			return
-		}
-
-		// Verify it's a command with metrics_index_delete
-		if msg.Type != MessageTypeCommand {
-			t.Errorf("expected command type, got %s", msg.Type)
-		}
-
-		payloadBytes, _ := json.Marshal(msg.Payload)
-		var cmd CommandPayload
-		json.Unmarshal(payloadBytes, &cmd)
-
-		if cmd.Command != CmdMetricsIndexDelete {
-			t.Errorf("expected command %s, got %s", CmdMetricsIndexDelete, cmd.Command)
-		}
-
-		// Send success ack
-		ack := Message{
-			Type:      MessageTypeAck,
-			ID:        msg.ID,
-			Timestamp: time.Now().UTC(),
-			Payload: AckPayload{
-				Status:  "success",
-				Message: "deleted",
-			},
-		}
-		wsjson.Write(ctx, serverConn, ack)
-	}()
-
-	// Send the batch
-	err := ext.sendInactiveTimeseriesBatch(ctx, keys)
-	if err != nil {
-		t.Fatalf("expected no error, got %v", err)
-	}
-}
-
-func TestProcessOneDiscoveredBatch_EmptyCache(t *testing.T) {
-	ext := newTestExtension()
-	_ = connectToMockBackend(t, ext)
-
-	ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
-	defer cancel()
-
-	// Cache is empty - should return false
-	processed := ext.processOneDiscoveredBatch(ctx)
-	if processed {
-		t.Error("expected false for empty cache")
-	}
-}
-
-func TestProcessOneDiscoveredBatch_WithData(t *testing.T) {
-	ext := newTestExtension()
-	serverConn := connectToMockBackend(t, ext)
-
-	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
-	defer cancel()
-
-	// Start client reader to process acks
-	startClientReader(ctx, ext)
-
-	// Add some items to the discovered cache
-	ext.discoveredTimeseriesCache.Add(HashKey{0x01}, &TimeseriesEntry{
-		MetricName: "test_metric_1",
-		Labels:     []LabelPair{{Name: "env", Value: "prod"}},
+	key := hk("fingerprint-0001") // 16 bytes
+	e.discoveredTimeseriesCache.Add(key, &TimeseriesEntry{
+		MetricName: "up",
+		Labels:     []LabelPair{{Name: "job", Value: "api"}, {Name: "instance", Value: "1"}},
+		Samples:    3,
 	})
 
-	// Start goroutine to handle backend messages
-	go func() {
-		var msg Message
-		if err := wsjson.Read(ctx, serverConn, &msg); err != nil {
-			return
-		}
-
-		ack := Message{
-			Type:      MessageTypeAck,
-			ID:        msg.ID,
-			Timestamp: time.Now().UTC(),
-			Payload: AckPayload{
-				Status:  "success",
-				Message: "ok",
-			},
-		}
-		wsjson.Write(ctx, serverConn, ack)
-	}()
-
-	// Should return true and process the batch
-	processed := ext.processOneDiscoveredBatch(ctx)
-	if !processed {
-		t.Error("expected true when cache has data")
+	if !e.processOneDiscoveredBatch(context.Background()) {
+		t.Fatal("expected a discovered batch to be processed")
 	}
 
-	// Cache should be empty now
-	if ext.discoveredTimeseriesCache.GetSize() != 0 {
-		t.Errorf("expected cache size 0 after processing, got %d", ext.discoveredTimeseriesCache.GetSize())
-	}
-}
-
-func TestProcessOneKnownBatch_EmptyCache(t *testing.T) {
-	ext := newTestExtension()
-	_ = connectToMockBackend(t, ext)
-
-	ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
-	defer cancel()
-
-	// Cache is empty - should return false
-	processed := ext.processOneKnownBatch(ctx)
-	if processed {
-		t.Error("expected false for empty cache")
-	}
-}
-
-func TestTimeseriesProcessorLoop_ContextCancellation(t *testing.T) {
-	ext := newTestExtension()
-	_ = connectToMockBackend(t, ext)
-
-	ctx, cancel := context.WithCancel(context.Background())
-
-	// Start the processor
-	ext.startTimeseriesProcessor(ctx)
-
-	// Give it a moment to start
-	time.Sleep(50 * time.Millisecond)
-
-	// Cancel context
-	cancel()
-
-	// Wait for goroutine to finish
-	done := make(chan struct{})
-	go func() {
-		ext.wg.Wait()
-		close(done)
-	}()
-
-	select {
-	case <-done:
-		// Success - processor stopped
-	case <-time.After(1 * time.Second):
-		t.Error("timeseriesProcessorLoop did not stop on context cancellation")
-	}
-}
-
-func TestTimeseriesProcessor_DiscoveredPriority(t *testing.T) {
-	ext := newTestExtension()
-	serverConn := connectToMockBackend(t, ext)
-
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-
-	// Start client reader to process acks
-	startClientReader(ctx, ext)
-
-	// Add items to both caches
-	ext.discoveredTimeseriesCache.Add(HashKey{0x01}, &TimeseriesEntry{
-		MetricName: "discovered_metric",
-	})
-	ext.knownTimeseriesCache.UpdateTimeseries(HashKey{0x02}, &TimeseriesEntry{
-		MetricName: "known_metric",
-		Samples:    100,
+	waitFor(t, 2*time.Second, func() bool {
+		return fake.find(func(m *agentv1.AgentMessage) bool {
+			_, ok := m.GetBody().(*agentv1.AgentMessage_IndexCreate)
+			return ok
+		}) != nil
 	})
 
-	// Start goroutine to handle backend messages and track order
-	receivedCommands := make(chan string, 10)
-	go func() {
-		for {
-			select {
-			case <-ctx.Done():
-				return
-			default:
-			}
-
-			var msg Message
-			if err := wsjson.Read(ctx, serverConn, &msg); err != nil {
-				return
-			}
-
-			if msg.Type == MessageTypeCommand {
-				payloadBytes, _ := json.Marshal(msg.Payload)
-				var cmd CommandPayload
-				json.Unmarshal(payloadBytes, &cmd)
-				receivedCommands <- cmd.Command
-
-				ack := Message{
-					Type:      MessageTypeAck,
-					ID:        msg.ID,
-					Timestamp: time.Now().UTC(),
-					Payload: AckPayload{
-						Status:  "success",
-						Message: "ok",
-					},
-				}
-				wsjson.Write(ctx, serverConn, ack)
-			}
-		}
-	}()
-
-	// Process one discovered batch - should process discovered first
-	processed := ext.processOneDiscoveredBatch(ctx)
-	if !processed {
-		t.Error("expected discovered batch to be processed")
+	msg := fake.find(func(m *agentv1.AgentMessage) bool {
+		_, ok := m.GetBody().(*agentv1.AgentMessage_IndexCreate)
+		return ok
+	})
+	series := msg.GetBody().(*agentv1.AgentMessage_IndexCreate).IndexCreate.GetSeries()
+	if len(series) != 1 {
+		t.Fatalf("expected 1 series, got %d", len(series))
+	}
+	s := series[0]
+	if !bytes.Equal(s.GetFingerprint(), key[:]) {
+		t.Errorf("fingerprint mismatch: got %x want %x", s.GetFingerprint(), key[:])
+	}
+	if s.GetMetricName() != "up" {
+		t.Errorf("metric name: got %q want up", s.GetMetricName())
+	}
+	labels := s.GetLabels()
+	if len(labels) != 2 || labels[0].GetName() != "job" || labels[0].GetValue() != "api" ||
+		labels[1].GetName() != "instance" || labels[1].GetValue() != "1" {
+		t.Errorf("labels mismatch: %+v", labels)
 	}
 
-	// Wait for command
-	select {
-	case cmd := <-receivedCommands:
-		if cmd != CmdMetricsIndexCreate {
-			t.Errorf("expected %s first, got %s", CmdMetricsIndexCreate, cmd)
-		}
-	case <-time.After(2 * time.Second):
-		t.Error("timeout waiting for command")
-	}
-
-	// Discovered cache should be empty now
-	if ext.discoveredTimeseriesCache.GetSize() != 0 {
-		t.Errorf("expected discovered cache empty, got %d", ext.discoveredTimeseriesCache.GetSize())
-	}
+	// Successful ack must purge the discovered cache.
+	waitFor(t, 2*time.Second, func() bool { return e.discoveredTimeseriesCache.GetSize() == 0 })
 }
 
-func TestConstants(t *testing.T) {
-	// Verify constants have expected values
-	if DiscoveredBatchSize != 5000 {
-		t.Errorf("expected DiscoveredBatchSize=5000, got %d", DiscoveredBatchSize)
+// Known cache -> IndexUpdate (active) + IndexDelete (inactive) over gRPC.
+func TestProcessorKnownBatchActiveAndInactive(t *testing.T) {
+	fake, e, cleanup := startAgentAgainst(t, nil)
+	defer cleanup()
+
+	active := hk("active-fp-000001")
+	inactive := hk("inactive-fp-0001")
+	e.knownTimeseriesCache.UpdateTimeseries(active, &TimeseriesEntry{MetricName: "up", Samples: 5})
+	e.knownTimeseriesCache.UpdateTimeseries(inactive, &TimeseriesEntry{MetricName: "down", Samples: 0})
+
+	if !e.processOneKnownBatch(context.Background()) {
+		t.Fatal("expected a known batch to be processed")
 	}
-	if KnownBatchSize != 30000 {
-		t.Errorf("expected KnownBatchSize=30000, got %d", KnownBatchSize)
-	}
-	if PushBatchIntervalSeconds != 5 {
-		t.Errorf("expected PushBatchIntervalSeconds=5, got %d", PushBatchIntervalSeconds)
-	}
-	if WaitOnErrorIntervalSeconds != 30 {
-		t.Errorf("expected WaitOnErrorIntervalSeconds=30, got %d", WaitOnErrorIntervalSeconds)
-	}
-	if LastBackendSyncThresholdSeconds != 60 {
-		t.Errorf("expected LastBackendSyncThresholdSeconds=60, got %d", LastBackendSyncThresholdSeconds)
+
+	// IndexDelete carries the inactive fingerprint.
+	waitFor(t, 2*time.Second, func() bool {
+		m := fake.find(func(m *agentv1.AgentMessage) bool {
+			_, ok := m.GetBody().(*agentv1.AgentMessage_IndexDelete)
+			return ok
+		})
+		if m == nil {
+			return false
+		}
+		for _, fp := range m.GetBody().(*agentv1.AgentMessage_IndexDelete).IndexDelete.GetFingerprints() {
+			if bytes.Equal(fp, inactive[:]) {
+				return true
+			}
+		}
+		return false
+	})
+
+	// IndexUpdate carries the active fingerprint with its sample count.
+	waitFor(t, 2*time.Second, func() bool {
+		m := fake.find(func(m *agentv1.AgentMessage) bool {
+			_, ok := m.GetBody().(*agentv1.AgentMessage_IndexUpdate)
+			return ok
+		})
+		if m == nil {
+			return false
+		}
+		for _, s := range m.GetBody().(*agentv1.AgentMessage_IndexUpdate).IndexUpdate.GetSeries() {
+			if bytes.Equal(s.GetFingerprint(), active[:]) && s.GetSamples() == 5 {
+				return true
+			}
+		}
+		return false
+	})
+
+	// Inactive deleted, active kept (marked synced) => one entry remains.
+	waitFor(t, 2*time.Second, func() bool { return e.knownTimeseriesCache.GetSize() == 1 })
+}
+
+// When the server never acks, the batch send fails (ack timeout via the caller's
+// context) rather than hanging.
+func TestSendBatchAckTimeout(t *testing.T) {
+	_, e, cleanup := startAgentWith(t, &fakeControlServer{noAck: true})
+	defer cleanup()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 800*time.Millisecond)
+	defer cancel()
+
+	err := e.sendDiscoveredTimeseriesBatch(ctx, []DiscoveredTimeseriesItem{
+		{HashKey: "00112233445566778899aabbccddeeff", Name: "up", Labels: []string{"job", "x"}},
+	})
+	if err == nil {
+		t.Fatal("expected an error when the server does not ack")
 	}
 }

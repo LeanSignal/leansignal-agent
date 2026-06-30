@@ -13,8 +13,10 @@ replicaCount: 1
 
 # Control-plane connection to LeanSignal (the edge-controller extension).
 leansignal:
-  # WebSocket endpoint, e.g. wss://api.leansignal.com/api/v1/agents/ws/
+  # gRPC target (host:port, no scheme), e.g. api.leansignal.com:443
   endpoint: ""
+  # Disable TLS on the control channel (h2c) - only for in-cluster/testing.
+  insecure: false
   agentKey:
     # Provide the key inline (stored in a generated Secret)...
     value: ""

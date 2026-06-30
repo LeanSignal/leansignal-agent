@@ -12,6 +12,7 @@ data:
       leansignal_edge_controller:
         endpoint: "${env:LEANSIGNAL_ENDPOINT}"
         agent_key: "${env:LEANSIGNAL_AGENT_KEY}"
+        insecure: {{ .Values.leansignal.insecure | default false }}
         reconnect_interval: 5s
         ping_interval: 30s
 
@@ -59,9 +60,11 @@ data:
           enabled: true
       prometheusremotewrite/dataplane:
         endpoint: "${env:LEANSIGNAL_DATAPLANE_ENDPOINT}"
+        headers:
+          Authorization: "Bearer ${env:LEANSIGNAL_AGENT_KEY}"
         retry_on_failure:
           enabled: true
-        sending_queue:
+        remote_write_queue:
           enabled: true
           num_consumers: 10
           queue_size: 5000

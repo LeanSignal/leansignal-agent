@@ -19,9 +19,10 @@ package leansignaledgecontroller
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/hex"
 	"time"
 
+	agentv1 "github.com/leansignal/leansignal-agent/proto/gen/leansignal/agent/v1"
 	"go.uber.org/zap"
 )
 
@@ -205,83 +206,84 @@ func (e *edgeControllerExtension) processOneKnownBatch(ctx context.Context) bool
 	return true
 }
 
-// sendDiscoveredTimeseriesBatch sends a batch of discovered timeseries to the backend.
+// logNonSuccess logs a non-success ack for an index operation.
+func (e *edgeControllerExtension) logNonSuccess(op string, ack *agentv1.Ack) {
+	if ack != nil && !ack.GetSuccess() {
+		e.logger.Warn("Backend returned non-success status",
+			zap.String("op", op),
+			zap.String("message", ack.GetMessage()),
+		)
+	}
+}
+
+// sendDiscoveredTimeseriesBatch sends a batch of discovered timeseries (index create).
 func (e *edgeControllerExtension) sendDiscoveredTimeseriesBatch(ctx context.Context, items []DiscoveredTimeseriesItem) error {
-	// Marshal the batch items to JSON
-	data, err := json.Marshal(items)
+	series := make([]*agentv1.DiscoveredSeries, 0, len(items))
+	for _, it := range items {
+		fp, err := hex.DecodeString(it.HashKey)
+		if err != nil {
+			e.logger.Warn("skipping series with invalid fingerprint", zap.String("hashKey", it.HashKey))
+			continue
+		}
+		labels := make([]*agentv1.Label, 0, len(it.Labels)/2)
+		for i := 0; i+1 < len(it.Labels); i += 2 {
+			labels = append(labels, &agentv1.Label{Name: it.Labels[i], Value: it.Labels[i+1]})
+		}
+		series = append(series, &agentv1.DiscoveredSeries{
+			Fingerprint: fp,
+			MetricName:  it.Name,
+			Labels:      labels,
+		})
+	}
+
+	ack, err := e.sendAndWaitAck(ctx, &agentv1.AgentMessage{
+		Body: &agentv1.AgentMessage_IndexCreate{IndexCreate: &agentv1.IndexCreate{Series: series}},
+	})
 	if err != nil {
 		return err
 	}
-
-	// Send the command to the backend
-	ack, err := e.SendCommand(ctx, CmdMetricsIndexCreate, data)
-	if err != nil {
-		return err
-	}
-
-	// Check the acknowledgment status
-	if ack.Status != "success" {
-		e.logger.Warn("Backend returned non-success status for metrics_index_create",
-			zap.String("status", ack.Status),
-			zap.String("message", ack.Message),
-		)
-	}
-
+	e.logNonSuccess("index_create", ack)
 	return nil
 }
 
-// sendActiveTimeseriesBatch sends a batch of active timeseries to the backend.
+// sendActiveTimeseriesBatch sends a batch of active timeseries (index update).
 func (e *edgeControllerExtension) sendActiveTimeseriesBatch(ctx context.Context, items []KnownActiveTimeseriesItem) error {
-	// Marshal the batch items to JSON
-	data, err := json.Marshal(items)
+	series := make([]*agentv1.ActiveSeries, 0, len(items))
+	for _, it := range items {
+		fp := make([]byte, len(it.HashKey))
+		copy(fp, it.HashKey[:])
+		series = append(series, &agentv1.ActiveSeries{
+			Fingerprint:  fp,
+			Samples:      it.TotalSamples,
+			LastUpdateMs: it.LastUpdate,
+		})
+	}
+
+	ack, err := e.sendAndWaitAck(ctx, &agentv1.AgentMessage{
+		Body: &agentv1.AgentMessage_IndexUpdate{IndexUpdate: &agentv1.IndexUpdate{Series: series}},
+	})
 	if err != nil {
 		return err
 	}
-
-	// Send the command to the backend
-	ack, err := e.SendCommand(ctx, CmdMetricsIndexUpdate, data)
-	if err != nil {
-		return err
-	}
-
-	// Check the acknowledgment status
-	if ack.Status != "success" {
-		e.logger.Warn("Backend returned non-success status for metrics_index_update",
-			zap.String("status", ack.Status),
-			zap.String("message", ack.Message),
-		)
-	}
-
+	e.logNonSuccess("index_update", ack)
 	return nil
 }
 
-// sendInactiveTimeseriesBatch sends a batch of inactive timeseries keys to the backend for deletion.
+// sendInactiveTimeseriesBatch sends a batch of inactive timeseries keys (index delete).
 func (e *edgeControllerExtension) sendInactiveTimeseriesBatch(ctx context.Context, keys []HashKey) error {
-	// Convert HashKey to string for JSON serialization
-	keyStrings := make([]string, len(keys))
-	for i, key := range keys {
-		keyStrings[i] = key.String()
+	fingerprints := make([][]byte, 0, len(keys))
+	for _, key := range keys {
+		fp := make([]byte, len(key))
+		copy(fp, key[:])
+		fingerprints = append(fingerprints, fp)
 	}
 
-	// Marshal the keys to JSON
-	data, err := json.Marshal(keyStrings)
+	ack, err := e.sendAndWaitAck(ctx, &agentv1.AgentMessage{
+		Body: &agentv1.AgentMessage_IndexDelete{IndexDelete: &agentv1.IndexDelete{Fingerprints: fingerprints}},
+	})
 	if err != nil {
 		return err
 	}
-
-	// Send the command to the backend
-	ack, err := e.SendCommand(ctx, CmdMetricsIndexDelete, data)
-	if err != nil {
-		return err
-	}
-
-	// Check the acknowledgment status
-	if ack.Status != "success" {
-		e.logger.Warn("Backend returned non-success status for metrics_index_delete",
-			zap.String("status", ack.Status),
-			zap.String("message", ack.Message),
-		)
-	}
-
+	e.logNonSuccess("index_delete", ack)
 	return nil
 }

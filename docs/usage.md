@@ -8,8 +8,8 @@ locally, and forwards the **demanded** subset to the central dataplane.
 Two things are always required (the installer prompts for them if you don't pass
 flags):
 
-1. **LeanSignal API URL** — the WebSocket control-plane endpoint
-   (`wss://api.leansignal.com/api/v1/agents/ws/`).
+1. **LeanSignal API URL** — the gRPC control-plane target (host:port)
+   (`api.leansignal.com:443`).
 2. **Agent key / secret token** — authenticates this agent to the API.
 
 Plus the **central dataplane URL** (Prometheus remote-write) for the demanded
@@ -68,9 +68,9 @@ while the local store keeps full fidelity.
 
 | Symptom | Likely cause |
 |---------|--------------|
-| Nothing in the central dataplane | no demand list yet, or control-plane unreachable (check the WebSocket URL + agent key) |
+| Nothing in the central dataplane | no demand list yet, or control-plane unreachable (check the gRPC URL + agent key) |
 | Nothing in the local store | check the agent is running and the local VM is up on `:8428` |
-| `connection refused` to the API | wrong `endpoint` / firewall / TLS — confirm the `wss://` URL |
+| `connection refused` to the API | wrong `endpoint` / firewall / TLS — confirm the host:port endpoint |
 | `401`/auth errors on connect | wrong or expired agent key |
 
 Increase log detail with `--set logLevel=debug` (Helm) or `telemetry.logs.level:

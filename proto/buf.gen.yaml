@@ -1,0 +1,12 @@
+version: v2
+managed:
+  enabled: false
+plugins:
+  - remote: buf.build/protocolbuffers/go
+    out: gen
+    opt:
+      - module=github.com/leansignal/leansignal-agent/proto
+  - remote: buf.build/grpc/go
+    out: gen
+    opt:
+      - module=github.com/leansignal/leansignal-agent/proto

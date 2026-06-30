@@ -29,7 +29,7 @@ LeanSignal control plane, and writes to two tiers of storage.
   └────────────────────────────────────────────────────────────────────────┘
 
   leansignal_edge_controller (extension, runs alongside the pipelines)
-    • persistent WebSocket to the LeanSignal API
+    • persistent gRPC stream to the LeanSignal API
     • receives the in-process index batches → maintains 3 caches
     • pushes index create/update/delete to the control plane
     • receives the demand list → exposed to the demand filter
@@ -65,7 +65,7 @@ cardinality and cost.
 |-----------|------|------|
 | `leansignalmetrics_tracker` | processor | builds & broadcasts the timeseries index (pass-through) |
 | `leansignal_demand_filter` | processor | drops metrics not on the demand list |
-| `leansignal_edge_controller` | extension | WebSocket control plane + index/demand caches |
+| `leansignal_edge_controller` | extension | gRPC control plane + index/demand caches |
 | `metricsindex` | library | shared fingerprint types + in-process pub/sub |
 
 See [components.md](components.md) for details.

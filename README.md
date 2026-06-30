@@ -22,14 +22,14 @@ flowchart LR
     T --> L[(Local VictoriaMetrics<br/>everything · short retention)]
     T --> F[leansignal_demand_filter]
     F --> D[(Central Dataplane<br/>demanded only · long retention)]
-    EC[leansignal_edge_controller] -. WebSocket .-> API[(LeanSignal API)]
+    EC[leansignal_edge_controller] -. gRPC .-> API[(LeanSignal API)]
     T -. metric index .-> EC
     API -. demand list .-> F
   end
 ```
 
 - **Everything** is written to the local VictoriaMetrics next to the agent.
-- The **edge controller** keeps a persistent WebSocket to LeanSignal: it reports
+- The **edge controller** keeps a persistent gRPC stream to LeanSignal: it reports
   the discovered metric/timeseries index and receives the **demand list**.
 - The **demand filter** drops everything not on the demand list before metrics
   reach the central dataplane — so the central store only holds what's asked for.
@@ -44,7 +44,7 @@ See [docs/architecture.md](docs/architecture.md) for the full design.
 helm upgrade --install leansignal-agent \
   oci://ghcr.io/leansignal/charts/leansignal-agent \
   --namespace leansignal --create-namespace \
-  --set leansignal.endpoint="wss://api.leansignal.com/api/v1/agents/ws/" \
+  --set leansignal.endpoint="api.leansignal.com:443" \
   --set leansignal.agentKey.value="YOUR_KEY" \
   --set dataplane.endpoint="https://dataplane.example.com/api/v1/write" \
   --set victoria-metrics-single.enabled=true
@@ -58,7 +58,7 @@ See [docs/install-kubernetes.md](docs/install-kubernetes.md).
 curl -fsSL https://raw.githubusercontent.com/LeanSignal/leansignal-agent/main/scripts/install/install.sh \
   | sudo bash -s -- \
     --agent-key YOUR_KEY \
-    --endpoint wss://api.leansignal.com/api/v1/agents/ws/ \
+    --endpoint api.leansignal.com:443 \
     --dataplane-endpoint https://dataplane.example.com/api/v1/write
 ```
 
@@ -70,7 +70,7 @@ Installs the agent + local VictoriaMetrics and registers them as services
 
 ```powershell
 .\install.ps1 -AgentKey YOUR_KEY `
-  -Endpoint wss://api.leansignal.com/api/v1/agents/ws/ `
+  -Endpoint api.leansignal.com:443 `
   -DataplaneEndpoint https://dataplane.example.com/api/v1/write
 ```
 

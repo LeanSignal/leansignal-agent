@@ -52,7 +52,7 @@ leansignal_demand_filter:
 
 ## `leansignal_edge_controller` (extension)
 
-Maintains the persistent WebSocket to the LeanSignal API and three thread-safe
+Maintains the persistent gRPC stream to the LeanSignal API and three thread-safe
 caches:
 
 - **known** — every series seen, with an 8-hour ring buffer of per-hour sample
@@ -66,7 +66,7 @@ and sync stats.
 
 ```yaml
 leansignal_edge_controller:
-  endpoint: "wss://api.leansignal.com/api/v1/agents/ws/"
+  endpoint: "api.leansignal.com:443"
   agent_key: "${env:LEANSIGNAL_AGENT_KEY}"
   reconnect_interval: 5s
   ping_interval: 30s

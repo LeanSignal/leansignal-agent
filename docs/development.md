@@ -15,8 +15,7 @@ internal workflow in more detail.
 | `scripts/install`, `scripts/release` | installers + release tooling |
 | `docs/` | user + developer documentation |
 
-The agent is a client of the proprietary LeanSignal API. The WebSocket protocol
-lives in `components/edgecontroller/messages.go`; keep it in sync with the
+The agent is a client of the proprietary LeanSignal API. The control-plane protocol is defined in the `proto/` module (leansignal.agent.v1); keep it in sync with the
 backend when either side changes.
 
 ## Branching model
@@ -66,17 +65,63 @@ Fast iteration on component code doesn't need OCB: `go test -race ./components/.
 
 ## Running the agent locally
 
-You can run the whole pipeline on your machine. You do **not** need a real
-LeanSignal backend: the edge controller will just retry the connection
-(harmless), and since no demand list arrives, the `dataplane` (filtered) pipeline
-stays empty while the local pipeline captures everything.
+You can run the whole pipeline on your machine.
 
-The fastest path is the all-in-one compose (collector image + local VM):
+### Against a local lean-api: `make local-run`
+
+If you're running lean-api locally (on `:8080`) plus a local VictoriaMetrics
+(`vm-ag` on `:8482`), a single command compiles and runs the agent wired to them:
 
 ```bash
-export LEANSIGNAL_ENDPOINT=ws://127.0.0.1:9/                       # dummy; ok if unreachable
+make local-run
+```
+
+It recompiles `_build/` and runs the agent with `config/agent-config.local.yaml`
+and these defaults (override any on the command line):
+
+| Make var | Default | Meaning |
+|----------|---------|---------|
+| `LOCAL_ENDPOINT` | `localhost:9090` | lean-api gRPC target (h2c, no TLS) |
+| `LOCAL_AGENT_KEY` | `deadbeef-dead-beef-dead-beefdeadbeef` | agent key |
+| `LOCAL_VM` | `http://localhost:8482/api/v1/write` | local vm-ag (everything) |
+| `LOCAL_DATAPLANE` | `http://localhost:8483/api/v1/write` | dataplane VM (demanded subset) |
+
+Run **two local VictoriaMetrics** first — one for everything, one for the
+demanded subset (no vmauth needed locally; the agent writes to the dataplane VM
+directly):
+
+```bash
+docker run --rm -d -p 8482:8428 victoriametrics/victoria-metrics:v1.111.0   # vm-ag
+docker run --rm -d -p 8483:8428 victoriametrics/victoria-metrics:v1.111.0   # dataplane
+make local-run
+```
+
+Because this connects to a real local lean-api, the metric index syncs and a
+demand list actually arrives — so the `metrics/filtered` pipeline populates (the
+dev config sets `log_filtered: true`, so the demand filter logs what it drops).
+
+### Rebuilding after you change agent code
+
+- **Changed component code** (`components/**`) → `make compile`. It recompiles
+  `_build/` only; the generated distribution references your packages through a
+  local `replace` directive, so edits are picked up **without** re-running OCB
+  (incremental, ~seconds). `make local-run` runs this for you.
+- **Changed `manifest.yaml`** (added/removed a component or dependency) →
+  `make generate` (re-runs OCB) then `make compile`. `make build` does both.
+
+So the inner loop is simply: edit a component → `make local-run`.
+
+### Standalone (no local lean-api)
+
+If you don't have lean-api running, the edge controller just retries the
+connection (harmless) and — with no demand list — the `dataplane` pipeline stays
+empty while the local pipeline still captures everything. The fastest path is the
+all-in-one compose (collector image + local VM):
+
+```bash
+export LEANSIGNAL_ENDPOINT=localhost:9090                          # dummy gRPC; ok if unreachable
 export LEANSIGNAL_AGENT_KEY=dev                                    # any non-empty value
-export LEANSIGNAL_DATAPLANE_ENDPOINT=http://127.0.0.1:8428/api/v1/write
+export LEANSIGNAL_DATAPLANE_ENDPOINT=http://victoriametrics:8428/api/v1/write
 docker compose -f deploy/docker/docker-compose.yaml up
 ```
 
@@ -91,7 +136,7 @@ make build                       # -> _build/leansignal-agent
 docker run --rm -p 8428:8428 victoriametrics/victoria-metrics:v1.111.0
 
 # 3. Set the connection details the example config reads from the environment
-export LEANSIGNAL_ENDPOINT=ws://127.0.0.1:9/
+export LEANSIGNAL_ENDPOINT=localhost:9090
 export LEANSIGNAL_AGENT_KEY=dev
 export LEANSIGNAL_DATAPLANE_ENDPOINT=http://127.0.0.1:8428/api/v1/write
 

@@ -9,7 +9,7 @@ equivalent config from its values.
 
 | Setting | Env var (host) | Helm value | Purpose |
 |---------|----------------|------------|---------|
-| Control-plane URL | `LEANSIGNAL_ENDPOINT` | `leansignal.endpoint` | WebSocket to the LeanSignal API |
+| Control-plane URL | `LEANSIGNAL_ENDPOINT` | `leansignal.endpoint` | gRPC to the LeanSignal API |
 | Agent key | `LEANSIGNAL_AGENT_KEY` | `leansignal.agentKey.value` / `existingSecret` | per-agent auth (secret) |
 | Dataplane URL | `LEANSIGNAL_DATAPLANE_ENDPOINT` | `dataplane.endpoint` | central remote-write target |
 | Local VM URL | (default `http://127.0.0.1:8428/api/v1/write`) | `localVM.writeEndpoint` | local full-fidelity store |

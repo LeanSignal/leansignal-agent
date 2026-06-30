@@ -10,7 +10,7 @@ daemons. Requires root (the script uses `sudo`). Apple silicon (arm64) and Intel
 curl -fsSL https://raw.githubusercontent.com/LeanSignal/leansignal-agent/main/scripts/install/install.sh \
   | sudo bash -s -- \
     --agent-key YOUR_KEY \
-    --endpoint wss://api.leansignal.com/api/v1/agents/ws/ \
+    --endpoint api.leansignal.com:443 \
     --dataplane-endpoint https://dataplane.example.com/api/v1/write
 ```
 

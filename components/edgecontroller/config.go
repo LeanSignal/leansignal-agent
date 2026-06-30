@@ -28,23 +28,28 @@ import (
 //
 //	extensions:
 //	  leansignal_edge_controller:
-//	    endpoint: "ws://lean-api:8070/api/v1/agents/ws/"
+//	    endpoint: "lean-api:443"          # gRPC target (host:port)
 //	    agent_key: "${LEANSIGNAL_AGENT_KEY}"
+//	    insecure: false                    # true for local h2c (no TLS)
 //	    reconnect_interval: 5s
 //	    ping_interval: 30s
 type Config struct {
-	// Endpoint is the WebSocket URL of the LeanSignal backend.
-	// Example: ws://lean-api:8070/api/v1/agents/ws/
+	// Endpoint is the gRPC target of the LeanSignal backend, in host:port form
+	// (no scheme). Example: lean-api:443 (prod) or localhost:9090 (local dev).
 	Endpoint string `mapstructure:"endpoint"`
 
-	// AgentKey is the authentication key for this agent (sent as X-Agent-Key header).
-	// This should be set via environment variable for security.
+	// AgentKey authenticates this agent (sent as the "x-agent-key" gRPC metadata).
+	// Should be set via environment variable for security.
 	AgentKey string `mapstructure:"agent_key"`
+
+	// Insecure disables TLS (plaintext h2c). Use only for local development.
+	Insecure bool `mapstructure:"insecure"`
 
 	// ReconnectInterval is how long to wait before reconnecting after a disconnect.
 	ReconnectInterval time.Duration `mapstructure:"reconnect_interval"`
 
-	// PingInterval is how often to send ping/heartbeat messages.
+	// PingInterval is how often to send app-level heartbeats (also the gRPC
+	// keepalive interval).
 	PingInterval time.Duration `mapstructure:"ping_interval"`
 }
 

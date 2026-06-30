@@ -10,6 +10,16 @@ GOBIN          ?= $(shell go env GOPATH)/bin
 # Pinned VictoriaMetrics version bundled with the agent (single source of truth).
 VM_VERSION     := $(shell cat VM_VERSION 2>/dev/null)
 
+# `make local-run` settings - override on the command line if your local setup differs.
+# (Keep these free of trailing inline comments: make would fold the spaces into the value.)
+# LOCAL_ENDPOINT  = local lean-api gRPC target (h2c)
+# LOCAL_VM        = vm-ag (everything)
+# LOCAL_DATAPLANE = dataplane (demanded subset)
+LOCAL_ENDPOINT  ?= localhost:9090
+LOCAL_AGENT_KEY ?= deadbeef-dead-beef-dead-beefdeadbeef
+LOCAL_VM        ?= http://localhost:8482/api/v1/write
+LOCAL_DATAPLANE ?= http://localhost:8483/api/v1/write
+
 .DEFAULT_GOAL := help
 
 .PHONY: help
@@ -44,12 +54,25 @@ license-check: ## Verify license headers are present (CI)
 	$(GOBIN)/addlicense -check -s -l apache -c "LeanSignal" -y 2026 components/
 
 .PHONY: generate
-generate: ## Generate the collector distribution sources into _build/ (no compile)
+generate: ## Generate the collector distribution sources into _build/ (run after manifest.yaml changes)
 	$(GOBIN)/ocb --config manifest.yaml --skip-compilation
 
-.PHONY: build
-build: generate ## Generate and compile the full distribution binary
+.PHONY: compile
+compile: ## Fast recompile of _build/ - picks up component code edits via the local replace (generates first if needed)
+	@[ -f "$(BUILD_DIR)/go.mod" ] || $(MAKE) generate
 	cd $(BUILD_DIR) && CGO_ENABLED=0 go build -trimpath -o $(BINARY) .
+
+.PHONY: build
+build: generate compile ## Full build: regenerate sources from manifest.yaml + compile
+
+.PHONY: local-run
+local-run: compile ## Build and run against a local lean-api (:8080) + local VictoriaMetrics (:8482)
+	@echo "endpoint=$(LOCAL_ENDPOINT)  vm-ag=$(LOCAL_VM)"
+	LEANSIGNAL_ENDPOINT="$(LOCAL_ENDPOINT)" \
+	LEANSIGNAL_AGENT_KEY="$(LOCAL_AGENT_KEY)" \
+	LEANSIGNAL_LOCAL_VM="$(LOCAL_VM)" \
+	LEANSIGNAL_DATAPLANE_ENDPOINT="$(LOCAL_DATAPLANE)" \
+	$(BUILD_DIR)/$(BINARY) --config config/agent-config.local.yaml
 
 .PHONY: snapshot
 snapshot: generate ## Local goreleaser snapshot (all platforms, no publish)

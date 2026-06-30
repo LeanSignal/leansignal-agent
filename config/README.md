@@ -26,7 +26,7 @@ These are provided by the service unit / installer, never hard-coded in the file
 
 | Variable | Purpose |
 |----------|---------|
-| `LEANSIGNAL_ENDPOINT` | WebSocket control-plane URL (`wss://…/api/v1/agents/ws/`) |
+| `LEANSIGNAL_ENDPOINT` | gRPC control-plane URL (`api.leansignal.com:443`) |
 | `LEANSIGNAL_AGENT_KEY` | Per-agent auth key (secret) |
 | `LEANSIGNAL_DATAPLANE_ENDPOINT` | Prometheus remote-write URL of the central store |
 

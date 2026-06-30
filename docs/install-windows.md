@@ -10,7 +10,7 @@ Run from an **elevated** (Administrator) PowerShell. amd64 is supported.
 $u = "https://raw.githubusercontent.com/LeanSignal/leansignal-agent/main/scripts/install/install.ps1"
 Invoke-WebRequest $u -OutFile install.ps1
 .\install.ps1 -AgentKey YOUR_KEY `
-  -Endpoint wss://api.leansignal.com/api/v1/agents/ws/ `
+  -Endpoint api.leansignal.com:443 `
   -DataplaneEndpoint https://dataplane.example.com/api/v1/write
 ```
 
@@ -19,7 +19,7 @@ Invoke-WebRequest $u -OutFile install.ps1
 | Parameter | Meaning |
 |-----------|---------|
 | `-AgentKey` | agent auth key (required) |
-| `-Endpoint` | LeanSignal WebSocket URL (required) |
+| `-Endpoint` | LeanSignal gRPC endpoint (host:port) (required) |
 | `-DataplaneEndpoint` | central remote-write URL (required) |
 | `-Version` | specific version (default: latest) |
 | `-NoVM` | don't install the local VictoriaMetrics |
