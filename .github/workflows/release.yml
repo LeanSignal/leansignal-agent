@@ -66,11 +66,11 @@ jobs:
         uses: goreleaser/goreleaser-action@v7
         with:
           version: "~> v2"
-          # -p 4: build up to 4 targets at once. Each full-contrib link peaks
-          # ~5 GB RAM, so -p 4 needs ~20 GB — safe on a 32 GB runner. Lower to -p 2
-          # if the runner has <24 GB RAM; the OOM on the old 7 GB hosted runner is
-          # why this cap exists at all.
-          args: release --clean -p 4
+          # -p 6: build all targets in parallel (there are 5). Each full-contrib
+          # link peaks ~5-6 GB RAM, so 5 concurrent ≈ 30 GB — comfortable on the
+          # 48 GB / 12-CPU self-hosted runner. This cap exists at all because the
+          # old 7 GB hosted runner OOM-killed itself building in parallel.
+          args: release --clean -p 6
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
