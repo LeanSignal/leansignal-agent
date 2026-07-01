@@ -160,8 +160,11 @@ verify() { # $1 = asset, $2 = checksums file (already in $tmp)
 # --- resolve target agent version --------------------------------------------
 if [ "$VERSION" = latest ]; then
   info "resolving latest release..."
-  VERSION="$(curl -fsSL "https://api.github.com/repos/${REPO}/releases/latest" \
-    | grep -m1 '"tag_name"' | sed -E 's/.*"tag_name": *"([^"]+)".*/\1/' || true)"
+  # Capture the API response fully before parsing: piping curl straight into
+  # `grep -m1` closes the pipe early, so curl dies with error 23 (write failure)
+  # under `set -o pipefail`. A here-string can't SIGPIPE.
+  rel_json="$(curl -fsSL "https://api.github.com/repos/${REPO}/releases/latest")"
+  VERSION="$(grep -m1 '"tag_name"' <<<"$rel_json" | sed -E 's/.*"tag_name": *"([^"]+)".*/\1/')"
   [ -n "$VERSION" ] || err "could not resolve latest version"
 fi
 VER_NOV="${VERSION#v}"

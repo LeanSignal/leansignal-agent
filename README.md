@@ -56,6 +56,12 @@ See [docs/architecture.md](docs/architecture.md) for the full design.
 
 ## Quick start
 
+> **Managing an install** — how to check service **status**, **start/stop/restart**
+> the agent and VictoriaMetrics, view **logs**, and **uninstall** is covered in the
+> per-OS guide for your platform:
+> [Linux](docs/install-linux.md) · [macOS](docs/install-macos.md) ·
+> [Windows](docs/install-windows.md) · [Kubernetes](docs/install-kubernetes.md).
+
 ### Kubernetes (Helm)
 
 You only need your **agent key** and your **tenant** — the gRPC control host
