@@ -13,14 +13,24 @@ VM_VERSION     := $(shell cat VM_VERSION 2>/dev/null)
 # `make local-run` settings - override on the command line if your local setup differs.
 # (Keep these free of trailing inline comments: make would fold the spaces into the value.)
 # LOCAL_ENDPOINT  = local lean-api gRPC target (h2c)
-# LOCAL_VM        = vm-ag (everything) write endpoint
-# LOCAL_DATAPLANE = dataplane (demanded subset)
-# LOCAL_VM_QUERY  = vm-ag query base (UI edit-mode queries tunnel here)
+# LOCAL_VM        = vm-ag base URL (the config builds write + the agent builds query)
+# LOCAL_DATAPLANE = dataplane base URL (demanded subset)
 LOCAL_ENDPOINT  ?= localhost:9090
 LOCAL_AGENT_KEY ?= deadbeef-dead-beef-dead-beefdeadbeef
-LOCAL_VM        ?= http://localhost:8482/api/v1/write
-LOCAL_DATAPLANE ?= http://localhost:8483/api/v1/write
-LOCAL_VM_QUERY  ?= http://localhost:8482
+LOCAL_VM        ?= http://localhost:8482
+LOCAL_DATAPLANE ?= http://localhost:8483
+
+# `make cloud-run` settings - point the local agent at a cloud tenant over TLS(443).
+# Usually you only set TENANT (+ CLOUD_AGENT_KEY); the gRPC control host and the
+# vmauth ingest host are derived as <tenant>-grpc.<domain> and <tenant>-ingest.<domain>.
+# (The <tenant>-api host is REST/UI only - the agent never connects to it.)
+# Override CLOUD_ENDPOINT / CLOUD_DATAPLANE directly for a non-standard host.
+TENANT           ?= mb1
+CLOUD_DOMAIN     ?= eu11.leansignal.io
+CLOUD_ENDPOINT   ?= $(TENANT)-grpc.$(CLOUD_DOMAIN):443
+CLOUD_AGENT_KEY  ?=
+CLOUD_VM         ?= http://localhost:8482
+CLOUD_DATAPLANE  ?= https://$(TENANT)-ingest.$(CLOUD_DOMAIN)
 
 .DEFAULT_GOAL := help
 
@@ -67,15 +77,29 @@ compile: ## Fast recompile of _build/ - picks up component code edits via the lo
 .PHONY: build
 build: generate compile ## Full build: regenerate sources from manifest.yaml + compile
 
+.PHONY: local-build
+local-build: compile ## Build the local agent binary into _build/ (run once; re-run after code edits)
+
 .PHONY: local-run
-local-run: compile ## Build and run against a local lean-api (:8080) + local VictoriaMetrics (:8482)
+local-run: ## Run the pre-built agent vs local lean-api (:9090) + VM (:8482). Run `make local-build` first.
+	@[ -x "$(BUILD_DIR)/$(BINARY)" ] || { echo "$(BUILD_DIR)/$(BINARY) not found — run 'make local-build' first"; exit 1; }
 	@echo "endpoint=$(LOCAL_ENDPOINT)  vm-ag=$(LOCAL_VM)"
 	LEANSIGNAL_ENDPOINT="$(LOCAL_ENDPOINT)" \
 	LEANSIGNAL_AGENT_KEY="$(LOCAL_AGENT_KEY)" \
 	LEANSIGNAL_LOCAL_VM="$(LOCAL_VM)" \
 	LEANSIGNAL_DATAPLANE_ENDPOINT="$(LOCAL_DATAPLANE)" \
-	LEANSIGNAL_LOCAL_VM_QUERY="$(LOCAL_VM_QUERY)" \
 	$(BUILD_DIR)/$(BINARY) --config config/agent-config.local.yaml
+
+.PHONY: cloud-run
+cloud-run: ## Run the pre-built agent vs a CLOUD tenant over TLS(443). Requires CLOUD_AGENT_KEY. Run `make local-build` first.
+	@[ -x "$(BUILD_DIR)/$(BINARY)" ] || { echo "$(BUILD_DIR)/$(BINARY) not found — run 'make local-build' first"; exit 1; }
+	@[ -n "$(CLOUD_AGENT_KEY)" ] || { echo "set CLOUD_AGENT_KEY=<tenant agent key> (see the tenant's agents table)"; exit 1; }
+	@echo "tenant=$(TENANT)  grpc=$(CLOUD_ENDPOINT)  ingest=$(CLOUD_DATAPLANE)  (api=$(TENANT)-api.$(CLOUD_DOMAIN), not used)  local-vm=$(CLOUD_VM)"
+	LEANSIGNAL_ENDPOINT="$(CLOUD_ENDPOINT)" \
+	LEANSIGNAL_AGENT_KEY="$(CLOUD_AGENT_KEY)" \
+	LEANSIGNAL_LOCAL_VM="$(CLOUD_VM)" \
+	LEANSIGNAL_DATAPLANE_ENDPOINT="$(CLOUD_DATAPLANE)" \
+	$(BUILD_DIR)/$(BINARY) --config config/agent-config.cloud.yaml
 
 .PHONY: snapshot
 snapshot: generate ## Local goreleaser snapshot (all platforms, no publish)

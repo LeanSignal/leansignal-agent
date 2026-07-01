@@ -1,19 +1,21 @@
 # =============================================================================
-# LeanSignal Agent - LOCAL DEVELOPMENT config (used by `make local-run`).
+# LeanSignal Agent - CLOUD config (used by `make cloud-run`).
 #
-# Unlike agent-config.example.yaml (host installs, local VM hard-coded to
-# 127.0.0.1:8428), this dev config reads ALL endpoints from the environment so
-# `make local-run` can point it at a local lean-api and a local VictoriaMetrics.
+# Same shape as agent-config.local.yaml, but the control channel uses real TLS
+# (insecure: false) to the tenant's gRPC ingress on 443. The local VM stays on
+# the agent's own host — the agent always keeps its full-fidelity store next to
+# itself; the cloud reads it back over the gRPC tunnel.
 #
-# Env (set by `make local-run`). Endpoints are VM BASE URLs (scheme://host:port);
-# this config appends the write path itself, and the query path is derived by the
-# agent — so one base URL drives both write and query for a store.
-#   LEANSIGNAL_ENDPOINT            localhost:9090   (local lean-api gRPC, h2c)
-#   LEANSIGNAL_AGENT_KEY           deadbeef-dead-beef-dead-beefdeadbeef
-#   LEANSIGNAL_LOCAL_VM            http://localhost:8482  (vm-ag base: write + UI query)
-#   LEANSIGNAL_DATAPLANE_ENDPOINT  http://localhost:8483  (dataplane base, demanded)
+# Env (set by `make cloud-run`). Endpoints are BASE URLs; this config appends the
+# write path and the agent derives the query path.
+#   LEANSIGNAL_ENDPOINT            <tenant>-grpc.eu11.leansignal.io:443  (gRPC over TLS)
+#   LEANSIGNAL_AGENT_KEY           <the tenant's agent key>
+#   LEANSIGNAL_LOCAL_VM            http://localhost:8482                 (this host's vm-ag base)
+#   LEANSIGNAL_DATAPLANE_ENDPOINT  https://<tenant>-ingest.eu11.leansignal.io  (vmauth ingest base)
 #
-# The dataplane writes go straight to a local VM (no vmauth in dev).
+# NOTE: the dataplane path only works once the tenant's vmauth ingest is deployed;
+# until then, demanded metrics can't reach the central VM (control + local store
+# still work). With no demands nothing is written there, so it's harmless.
 # =============================================================================
 
 extensions:
@@ -22,7 +24,7 @@ extensions:
   leansignal_edge_controller:
     endpoint: "${env:LEANSIGNAL_ENDPOINT}"
     agent_key: "${env:LEANSIGNAL_AGENT_KEY}"
-    insecure: true        # local gRPC over h2c (no TLS)
+    insecure: false       # real TLS — nginx wildcard cert on 443
     reconnect_interval: 5s
     ping_interval: 30s
     # UI edit-mode queries tunnel here; the agent appends /api/v1/query itself.
@@ -53,20 +55,20 @@ processors:
     log_metrics: false
     log_series: false
   leansignal_demand_filter:
-    log_filtered: true
+    log_filtered: false
 
 exporters:
-  # Local "vm-ag" - receives everything. Base URL + write path built here.
+  # This host's "vm-ag" - receives everything. Base URL + write path built here.
   prometheusremotewrite/local:
     endpoint: "${env:LEANSIGNAL_LOCAL_VM}/api/v1/write"
     tls:
       insecure: true
-  # Dataplane - receives only the demanded subset (points at the same local VM
-  # by default in dev; override LEANSIGNAL_DATAPLANE_ENDPOINT to separate them).
+  # Central dataplane via the tenant's vmauth ingest - only the demanded subset.
+  # The agent key is the bearer token vmauth authenticates.
   prometheusremotewrite/dataplane:
     endpoint: "${env:LEANSIGNAL_DATAPLANE_ENDPOINT}/api/v1/write"
-    tls:
-      insecure: true
+    headers:
+      Authorization: "Bearer ${env:LEANSIGNAL_AGENT_KEY}"
 
 connectors:
   forward/demand_filter: {}
