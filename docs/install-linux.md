@@ -63,6 +63,14 @@ systemctl restart leansignal-agent
 
 Local store: `http://127.0.0.1:8428` · agent health: `http://127.0.0.1:13133`.
 
+## Upgrading
+
+Upgrade just the agent — VictoriaMetrics and its data are untouched:
+```bash
+curl -fsSL https://raw.githubusercontent.com/LeanSignal/leansignal-agent/main/scripts/install/upgrade.sh | sudo bash
+```
+See [Upgrading](upgrading.md) for agent-only vs VM upgrades, data safety, and rollback.
+
 ## Uninstall
 
 ```bash

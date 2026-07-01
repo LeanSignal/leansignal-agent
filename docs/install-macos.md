@@ -50,6 +50,14 @@ tail -f /usr/local/var/log/leansignal-agent/agent.log
 > Note: macOS binaries from a release are not notarized; Gatekeeper may require
 > approval the first time. Bundles installed via the script run as root daemons.
 
+## Upgrading
+
+Upgrade just the agent — VictoriaMetrics and its data are untouched:
+```bash
+curl -fsSL https://raw.githubusercontent.com/LeanSignal/leansignal-agent/main/scripts/install/upgrade.sh | sudo bash
+```
+See [Upgrading](upgrading.md) for agent-only vs VM upgrades, data safety, and rollback.
+
 ## Uninstall
 
 ```bash

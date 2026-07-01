@@ -83,6 +83,16 @@ curl -s http://127.0.0.1:8428/api/v1/label/__name__/values
 Send your own app metrics to the in-cluster OTLP service
 `leansignal-agent.leansignal.svc:4317` (gRPC) / `:4318` (HTTP).
 
+## Upgrading
+
+```bash
+helm upgrade leansignal-agent oci://ghcr.io/leansignal/charts/leansignal-agent \
+  --version <chart-version> --reuse-values
+```
+Bumping the chart `appVersion` upgrades the agent image; the VictoriaMetrics
+StatefulSet + PVC are retained. See [Upgrading](upgrading.md) for the agent-only vs
+VM distinction.
+
 ## Uninstall
 
 ```bash

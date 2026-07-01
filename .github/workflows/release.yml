@@ -10,30 +10,29 @@ permissions:
   packages: write   # push images + chart to ghcr
 
 jobs:
+  # Single job on the self-hosted runner (which now has Docker): goreleaser
+  # cross-compiles every platform AND builds + pushes the multi-arch images, then
+  # the VM bundles are attached. The arm64 image is a COPY-only Dockerfile, so the
+  # QEMU emulation the Set up QEMU step registers is barely exercised.
   release:
     name: Build & publish release
-    runs-on: ubuntu-latest
+    runs-on: self-hosted
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           fetch-depth: 0   # goreleaser needs full history for the changelog
-
-      # goreleaser cross-compiles the full Contrib distribution for every platform
-      # plus builds images — reclaim ~20 GB of unused toolchains so the runner's
-      # disk doesn't fill up ("no space left on device").
-      - name: Free disk space
-        run: |
-          sudo rm -rf /usr/local/lib/android /usr/share/dotnet /opt/ghc /opt/hostedtoolcache/CodeQL
-          sudo docker image prune --all --force >/dev/null 2>&1 || true
-          df -h /
 
       - uses: actions/setup-go@v6
         with:
           go-version-file: go.mod
-          cache: true
+          # false: this is a PERSISTENT self-hosted runner, so GOCACHE/GOMODCACHE
+          # already survive between runs on local disk. setup-go's actions/cache
+          # integration would otherwise tar+upload ~6 GB of full-contrib cache to
+          # GitHub every run (10-15 min of post-job overhead) for zero benefit.
+          cache: false
 
       - name: Set up QEMU
-        uses: docker/setup-qemu-action@v3
+        uses: docker/setup-qemu-action@v4
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v4
@@ -57,22 +56,41 @@ jobs:
           grep -m1 '^  version:' manifest.yaml
 
       - name: Generate distribution sources
-        run: "$(go env GOPATH)/bin/builder --config manifest.yaml --skip-compilation"
+        run: |
+          "$(go env GOPATH)/bin/builder" --config manifest.yaml --skip-compilation
+          # The stamp step above modified the tracked manifest.yaml; that version is
+          # now baked into the gitignored _build/, so restore the manifest to leave a
+          # clean working tree. goreleaser refuses to release from a dirty tree, and
+          # for any tag whose version differs from the committed manifest (e.g. an rc)
+          # the stamp is a real change — so this restore is required, not cosmetic.
+          git checkout -- manifest.yaml
+          git status --porcelain
 
       - name: Run goreleaser
         uses: goreleaser/goreleaser-action@v7
         with:
           version: "~> v2"
-          args: release --clean
+          # -p 6: build all targets in parallel (there are 5). ~5-6 GB RAM each, so
+          # ≈30 GB — fine on the 48 GB / 12-CPU runner.
+          args: release --clean -p 6
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # Go's build temp defaults to /tmp, a small tmpfs on this runner; five
+          # parallel full-contrib builds exhaust it. Redirect to the disk-backed
+          # work volume (same fs as GOCACHE, which has space).
+          GOTMPDIR: ${{ runner.temp }}
+          TMPDIR: ${{ runner.temp }}
 
       - name: Build VM bundles & re-host VM archives
         env:
           VERSION: ${{ github.ref_name }}
           STRICT_VM: "1"
         run: |
-          sudo apt-get update && sudo apt-get install -y zip unzip
+          # zip/unzip are used by build-bundles.sh; install only if missing
+          # (self-hosted runner images vary).
+          if ! command -v zip >/dev/null || ! command -v unzip >/dev/null; then
+            sudo apt-get update && sudo apt-get install -y zip unzip
+          fi
           # strip leading 'v' for artifact naming consistency with goreleaser
           export VERSION="${VERSION#v}"
           bash scripts/release/build-bundles.sh
@@ -80,15 +98,39 @@ jobs:
       - name: Upload bundles to the release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: gh release upload "${{ github.ref_name }}" bundles/* --clobber
+        run: |
+          set -euo pipefail
+          if command -v gh >/dev/null 2>&1; then
+            gh release upload "${{ github.ref_name }}" bundles/* --clobber
+          else
+            # Minimal self-hosted runner without gh: upload via the GitHub API.
+            # (This is an expected fallback, not an error — install gh on the
+            # runner to use the gh path instead.)
+            echo "note: gh CLI not installed; uploading bundles via the GitHub API (expected, fine)"
+            # Capture the release JSON fully first. Piping curl straight into
+            # `grep -m1` closes the pipe early, so curl dies with error 23
+            # (write failure) under `set -o pipefail`. A here-string can't SIGPIPE.
+            rel_json="$(curl -fsSL -H "Authorization: Bearer ${GH_TOKEN}" \
+              "https://api.github.com/repos/${GITHUB_REPOSITORY}/releases/tags/${GITHUB_REF_NAME}")"
+            up="$(grep -m1 '"upload_url"' <<<"$rel_json" | sed -E 's/.*"upload_url": *"([^"{]+).*/\1/')"
+            for f in bundles/*; do
+              name="$(basename "$f")"
+              echo "  uploading ${name}"
+              curl -fsSL -X POST \
+                -H "Authorization: Bearer ${GH_TOKEN}" \
+                -H "Content-Type: application/octet-stream" \
+                --data-binary @"${f}" \
+                "${up}?name=${name}" >/dev/null
+            done
+          fi
 
   helm:
     name: Publish Helm chart
-    runs-on: ubuntu-latest
+    runs-on: self-hosted
     needs: release
     steps:
-      - uses: actions/checkout@v4
-      - uses: azure/setup-helm@v4
+      - uses: actions/checkout@v5
+      - uses: azure/setup-helm@v5
 
       - name: Package & push chart (OCI)
         run: |

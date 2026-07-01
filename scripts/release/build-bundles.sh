@@ -51,7 +51,7 @@ verify_vm() {
     if [ "$want" != "$got" ]; then
       echo "ERROR: checksum mismatch for $name (want $want got $got)" >&2; exit 1
     fi
-    echo "  verified $name against pinned checksum"
+    echo "  verified $name against pinned checksum" >&2
   else
     echo "  WARNING: no pinned checksum for $name (add one to $VM_CHECKSUMS)" >&2
     [ "$STRICT_VM" = "1" ] && { echo "ERROR: STRICT_VM=1 and checksum missing" >&2; exit 1; } || true
@@ -78,7 +78,7 @@ download_vm() {
   local extract=".vmcache/${os}-${arch}"
 
   if [ ! -f "$dl" ]; then
-    echo "  downloading $asset"
+    echo "  downloading $asset" >&2
     if ! curl -fsSL -o "$dl" "$url"; then
       echo "  WARNING: VM asset not available: $url" >&2
       return 0
@@ -135,6 +135,15 @@ for p in "${PLATFORMS[@]}"; do
     echo "  -> $OUT_DIR/${name}.tar.gz"
   fi
 done
+
+# machine-readable manifest of what this release ships. upgrade.sh reads this to
+# learn the bundled VictoriaMetrics version for `--with-vm` (the agent version is
+# available from `leansignal-agent --version`, but VM's is not otherwise pinned).
+cat > "$OUT_DIR/VERSIONS.txt" <<EOF
+agent=${VERSION}
+victoria-metrics=${VM_VERSION}
+EOF
+echo "  -> $OUT_DIR/VERSIONS.txt (agent=${VERSION}, victoria-metrics=${VM_VERSION})"
 
 # checksums for everything we produced
 ( cd "$OUT_DIR" && \

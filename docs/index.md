@@ -19,6 +19,7 @@ can read your private full-fidelity store without it ever being exposed.
   - [Linux](install-linux.md)
   - [macOS](install-macos.md)
   - [Windows](install-windows.md)
+- [Upgrading](upgrading.md) — agent-only vs VM upgrades, data safety, snapshots, rollback
 
 ### Understanding it
 - [Architecture](architecture.md) — data flow, storage tiers, the demand/index model, control plane vs data plane, the query tunnel

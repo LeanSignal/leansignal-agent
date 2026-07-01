@@ -77,7 +77,8 @@ Invoke-WebRequest -Uri "$base/$bundle" -OutFile (Join-Path $tmp $bundle)
 # Optional checksum verification
 try {
   Invoke-WebRequest -Uri "$base/bundle-checksums.txt" -OutFile (Join-Path $tmp "bundle-checksums.txt")
-  $want = (Select-String -Path (Join-Path $tmp "bundle-checksums.txt") -Pattern $bundle | Select-Object -First 1) -replace '\s.*$',''
+  $mi = Select-String -Path (Join-Path $tmp "bundle-checksums.txt") -Pattern ([regex]::Escape($bundle)) | Select-Object -First 1
+  $want = if ($mi) { (($mi.Line -split '\s+') | Where-Object { $_ })[0] }
   if ($want) {
     $got = (Get-FileHash (Join-Path $tmp $bundle) -Algorithm SHA256).Hash.ToLower()
     if ($want.ToLower() -ne $got) { Die "checksum mismatch for $bundle" }
