@@ -136,6 +136,15 @@ for p in "${PLATFORMS[@]}"; do
   fi
 done
 
+# machine-readable manifest of what this release ships. upgrade.sh reads this to
+# learn the bundled VictoriaMetrics version for `--with-vm` (the agent version is
+# available from `leansignal-agent --version`, but VM's is not otherwise pinned).
+cat > "$OUT_DIR/VERSIONS.txt" <<EOF
+agent=${VERSION}
+victoria-metrics=${VM_VERSION}
+EOF
+echo "  -> $OUT_DIR/VERSIONS.txt (agent=${VERSION}, victoria-metrics=${VM_VERSION})"
+
 # checksums for everything we produced
 ( cd "$OUT_DIR" && \
   if command -v sha256sum >/dev/null 2>&1; then sha256sum ./* > bundle-checksums.txt; \

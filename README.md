@@ -100,12 +100,50 @@ export LEANSIGNAL_ENDPOINT=... LEANSIGNAL_AGENT_KEY=... LEANSIGNAL_DATAPLANE_END
 docker compose -f deploy/docker/docker-compose.yaml up
 ```
 
+## Upgrading
+
+The agent and its local VictoriaMetrics run as **separate services**, and VM's
+data lives in a fixed directory outside the binaries — so **upgrading the agent
+never stops VictoriaMetrics or touches its data**. That's the default. Upgrading
+VictoriaMetrics is a separate, snapshot-first, opt-in step. Both paths roll back
+automatically if the service doesn't come back healthy. Full guide:
+[docs/upgrading.md](docs/upgrading.md).
+
+### Kubernetes (Helm)
+
+```bash
+helm upgrade leansignal-agent oci://ghcr.io/leansignal/charts/leansignal-agent \
+  --version <chart-version> --reuse-values
+```
+
+Bumps the agent image; the VictoriaMetrics StatefulSet + PVC are retained.
+
+### Linux / macOS
+
+```bash
+# agent only — VictoriaMetrics + its data are untouched (the common case)
+curl -fsSL https://raw.githubusercontent.com/LeanSignal/leansignal-agent/main/scripts/install/upgrade.sh | sudo bash
+
+# pin a version, or also upgrade VictoriaMetrics (snapshots first)
+curl -fsSL https://raw.githubusercontent.com/LeanSignal/leansignal-agent/main/scripts/install/upgrade.sh | sudo bash -s -- --version v0.2.0
+curl -fsSL https://raw.githubusercontent.com/LeanSignal/leansignal-agent/main/scripts/install/upgrade.sh | sudo bash -s -- --with-vm
+```
+
+### Windows (PowerShell, as Administrator)
+
+```powershell
+.\upgrade.ps1                 # agent only — VictoriaMetrics + its data untouched
+.\upgrade.ps1 -Version v0.2.0
+.\upgrade.ps1 -WithVM         # also upgrade VictoriaMetrics (snapshots first)
+```
+
 ## Documentation
 
 Full docs live in [docs/](docs/index.md):
 
 - [Usage](docs/usage.md) — send metrics, query the local store, how demand works
 - [Configuration](docs/configuration.md) — settings, env vars, pipelines
+- [Upgrading](docs/upgrading.md) — agent-only vs VM upgrades, data safety, rollback
 - [Architecture](docs/architecture.md) · [Components](docs/components.md)
 - [Development guide](docs/development.md) · [Releasing](docs/releasing.md)
 

@@ -57,6 +57,14 @@ Get-Service LeanSignalAgent, LeanSignalVictoriaMetrics
 Restart-Service LeanSignalAgent
 ```
 
+## Upgrading
+
+Upgrade just the agent — VictoriaMetrics and its data are untouched. From an elevated PowerShell:
+```powershell
+iwr https://raw.githubusercontent.com/LeanSignal/leansignal-agent/main/scripts/install/upgrade.ps1 -OutFile upgrade.ps1; .\upgrade.ps1
+```
+See [Upgrading](upgrading.md) for agent-only vs VM upgrades, data safety, and rollback.
+
 ## Uninstall
 
 ```powershell
