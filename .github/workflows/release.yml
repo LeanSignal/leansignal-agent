@@ -59,6 +59,13 @@ jobs:
           args: release --clean -p 6
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # Go's build temp ($WORK / go-build) defaults to /tmp, which on this
+          # runner is a small tmpfs. Five parallel full-contrib builds write tens
+          # of GB of intermediate .a files and exhaust it ("no space left on
+          # device"). Redirect it to the runner's disk-backed work volume (the same
+          # filesystem as GOCACHE, which has ample space).
+          GOTMPDIR: ${{ runner.temp }}
+          TMPDIR: ${{ runner.temp }}
 
       - name: Build VM bundles & re-host VM archives
         env:
