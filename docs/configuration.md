@@ -9,12 +9,33 @@ equivalent config from its values.
 
 | Setting | Env var (host) | Helm value | Purpose |
 |---------|----------------|------------|---------|
-| Control-plane URL | `LEANSIGNAL_ENDPOINT` | `leansignal.endpoint` | gRPC to the LeanSignal API |
-| Agent key | `LEANSIGNAL_AGENT_KEY` | `leansignal.agentKey.value` / `existingSecret` | per-agent auth (secret) |
-| Dataplane URL | `LEANSIGNAL_DATAPLANE_ENDPOINT` | `dataplane.endpoint` | central remote-write target |
-| Local VM URL | (default `http://127.0.0.1:8428/api/v1/write`) | `localVM.writeEndpoint` | local full-fidelity store |
+| Control-plane URL | `LEANSIGNAL_ENDPOINT` | `leansignal.endpoint` | gRPC target (`host:port`) of the LeanSignal API |
+| Agent key | `LEANSIGNAL_AGENT_KEY` | `leansignal.agentKey.value` / `existingSecret` | per-agent auth (secret) — used both as gRPC metadata and as the dataplane bearer token |
+| Dataplane URL | `LEANSIGNAL_DATAPLANE_ENDPOINT` | `dataplane.endpoint` | central remote-write target (vmauth ingest in prod) |
+| Local VM URL | (default `http://127.0.0.1:8428`) | `localVM.writeEndpoint` | local full-fidelity store |
 
 Never hard-code the agent key in the config file — always pass it via env/secret.
+
+## Edge controller settings
+
+The `leansignal_edge_controller` extension takes these keys (see
+[`config/agent-config.example.yaml`](../config/agent-config.example.yaml)):
+
+| Key | Default | Purpose |
+|-----|---------|---------|
+| `endpoint` | — | gRPC target (`host:port`, no scheme). Prod: `…-grpc.<domain>:443` |
+| `agent_key` | — | per-agent auth (set from env/secret) |
+| `insecure` | `false` | `true` = plaintext h2c (local dev only); `false` = TLS on 443 |
+| `local_vm_query_url` | `http://127.0.0.1:8428` | **base** URL of the local VM's query API — the edit-mode query tunnel runs UI queries here; the agent appends `/api/v1/query…` itself |
+| `reconnect_interval` | `5s` | backoff between reconnects |
+| `ping_interval` | `30s` | heartbeat + gRPC keepalive |
+
+**Base URLs (no path).** The endpoints above are base URLs; the config appends the
+write path and the agent appends the query path. So a single value drives both — e.g.
+`LEANSIGNAL_LOCAL_VM=http://localhost:8482` yields `…:8482/api/v1/write` for the
+exporter and `…:8482/api/v1/query` for the tunnel. On Kubernetes the chart derives
+`localVM.queryEndpoint` from `localVM.writeEndpoint` (trimming `/api/v1/write`)
+unless you set it explicitly.
 
 ## Config locations (host installs)
 

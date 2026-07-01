@@ -10,6 +10,11 @@ the LeanSignal control plane, writes **everything** to a co-located
 [VictoriaMetrics](https://victoriametrics.com/) for full local fidelity, and
 forwards only the **demanded** subset to a central, long-retention dataplane.
 
+The agent lives in **your** network and dials **out** to LeanSignal — it needs no
+inbound access. A single long-lived gRPC stream carries the metric index up,
+the demand list down, and edit-mode queries both ways, so the LeanSignal UI can
+read your full-fidelity local store without that store ever being exposed.
+
 It runs on Kubernetes, Linux, macOS, and Windows, and is released under the
 **Apache 2.0** license.
 
@@ -17,22 +22,35 @@ It runs on Kubernetes, Linux, macOS, and Windows, and is released under the
 
 ```mermaid
 flowchart LR
-  subgraph host[Agent]
-    R[Receivers<br/>OTLP · host/k8s metrics] --> T[leansignalmetrics_tracker]
-    T --> L[(Local VictoriaMetrics<br/>everything · short retention)]
-    T --> F[leansignal_demand_filter]
-    F --> D[(Central Dataplane<br/>demanded only · long retention)]
-    EC[leansignal_edge_controller] -. gRPC .-> API[(LeanSignal API)]
-    T -. metric index .-> EC
-    API -. demand list .-> F
+  subgraph agent["Agent — your private network"]
+    R["Receivers: OTLP, host / k8s metrics"] --> T["leansignalmetrics_tracker"]
+    T --> L[("Local VictoriaMetrics<br/>everything")]
+    T --> F["leansignal_demand_filter"]
+    EC["leansignal_edge_controller"]
+    T -.->|index in-process| EC
+    EC -.->|demand list| F
+    EC -.->|runs read-only query| L
   end
+  subgraph cloud["LeanSignal — public, 443"]
+    API["lean-api"]
+    VM[("Central Dataplane VM<br/>demanded, long retention")]
+    UI["Web UI"]
+  end
+  EC ==>|gRPC control stream: index up, demands down, queries both ways| API
+  F ==>|remote-write demanded subset via vmauth| VM
+  UI -->|edit-mode query| API
+  API -.->|view-mode read| VM
 ```
 
 - **Everything** is written to the local VictoriaMetrics next to the agent.
-- The **edge controller** keeps a persistent gRPC stream to LeanSignal: it reports
-  the discovered metric/timeseries index and receives the **demand list**.
+- The **edge controller** keeps one persistent, outbound gRPC stream to LeanSignal:
+  it reports the discovered metric/timeseries **index**, receives the **demand
+  list**, and answers **edit-mode queries** the UI runs against the local store
+  (read-only, allow-listed — the store is never exposed to the internet).
 - The **demand filter** drops everything not on the demand list before metrics
   reach the central dataplane — so the central store only holds what's asked for.
+  In production the agent remote-writes the demanded subset through **vmauth**,
+  authenticated by its agent key.
 
 See [docs/architecture.md](docs/architecture.md) for the full design.
 
@@ -95,18 +113,27 @@ Full docs live in [docs/](docs/index.md):
 The agent is configured with a standard OpenTelemetry Collector config file; see
 [config/agent-config.example.yaml](config/agent-config.example.yaml).
 
-## Building from source
+## Building & running from source
 
 ```bash
-make install-tools   # OCB, addlicense, goreleaser
+make install-tools   # OCB, addlicense, goreleaser (one-time)
 make test            # go test -race ./components/...
-make build           # OCB-generate + compile the full distribution
-make snapshot        # local goreleaser build for all platforms
+make local-build     # OCB-generate (if needed) + compile -> _build/leansignal-agent
 ```
 
-The distribution is assembled by the [OpenTelemetry Collector Builder](https://github.com/open-telemetry/opentelemetry-collector/tree/main/cmd/builder)
+Then run the prebuilt binary — no recompile — against a **local** or a **cloud**
+LeanSignal:
+
+```bash
+make local-run                                  # vs local lean-api (:9090, h2c) + local VM (:8482)
+make cloud-run TENANT=mb1 CLOUD_AGENT_KEY=…     # vs a cloud tenant over TLS (…-grpc.<domain>:443)
+```
+
+`make build` / `make snapshot` produce the release artifacts (all platforms). The
+distribution is assembled by the [OpenTelemetry Collector Builder](https://github.com/open-telemetry/opentelemetry-collector/tree/main/cmd/builder)
 from [`manifest.yaml`](manifest.yaml); first-party code lives under
-[`components/`](components/).
+[`components/`](components/). See the [development guide](docs/development.md) for
+the full local/cloud run loop.
 
 ## Contributing & support
 

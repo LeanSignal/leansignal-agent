@@ -64,10 +64,20 @@ A background loop flushes to the control plane (discovered first, then known
 deletes, then known updates), with retry/backoff. Heartbeats carry cache sizes
 and sync stats.
 
+It also serves the **edit-mode query tunnel**: when the control plane pushes a
+`QueryRequest` over the stream, the extension runs it (in a bounded worker pool,
+off the receive loop) against `local_vm_query_url` and streams a `QueryResponse`
+back, correlated by id. Only read-only VictoriaMetrics paths are allowed
+(`query`, `query_range`, `series`, `labels`, `label/<n>/values`, `metadata`,
+`status/*`; `GET`/`POST`); anything else is refused with `403`, and path
+traversal is cleaned before matching.
+
 ```yaml
 leansignal_edge_controller:
-  endpoint: "api.leansignal.com:443"
+  endpoint: "api.leansignal.com:443"     # …-grpc.<domain>:443 in prod
   agent_key: "${env:LEANSIGNAL_AGENT_KEY}"
+  insecure: false                        # true = plaintext h2c (local dev only)
+  local_vm_query_url: "http://127.0.0.1:8428"   # base URL of the local VM query API
   reconnect_interval: 5s
   ping_interval: 30s
 ```

@@ -44,7 +44,13 @@ victoria-metrics-single:
   enabled: false
 localVM:
   writeEndpoint: http://my-vm.monitoring.svc:8428/api/v1/write
+  # queryEndpoint is derived from writeEndpoint (with /api/v1/write trimmed) for
+  # the edit-mode query tunnel; set it explicitly only if your query API is elsewhere:
+  # queryEndpoint: http://my-vm.monitoring.svc:8428
 ```
+
+The chart passes `queryEndpoint` to the agent as `local_vm_query_url` so LeanSignal
+can read this store over the gRPC tunnel — it does not need to be exposed.
 
 ## What gets created
 

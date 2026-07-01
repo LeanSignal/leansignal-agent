@@ -42,6 +42,15 @@ curl -s 'http://localhost:8428/api/v1/query?query=up' | jq .
 
 Point Grafana (Prometheus datasource) at `http://<host>:8428` for dashboards.
 
+### From the LeanSignal UI (query tunnel)
+
+You don't need to expose the local store to use it from LeanSignal. When you edit
+a dashboard, the UI's **edit-mode** queries are tunneled down the agent's gRPC
+control stream, run against the local store, and returned — so you get
+full-fidelity data in the UI while the store stays private. Only read-only query
+paths are allowed; the agent must be connected (if it's offline the UI returns a
+`503` for edit-mode). View-mode dashboards read the central dataplane instead.
+
 ## How "demand" works
 
 The central dataplane only receives metrics on the **demand list** sent by the
@@ -72,6 +81,8 @@ while the local store keeps full fidelity.
 | Nothing in the local store | check the agent is running and the local VM is up on `:8428` |
 | `connection refused` to the API | wrong `endpoint` / firewall / TLS — confirm the host:port endpoint |
 | `401`/auth errors on connect | wrong or expired agent key |
+| UI edit-mode returns `503` / no data | agent not connected, or `local_vm_query_url` points at the wrong local VM |
+| UI edit-mode query returns `403` | the path isn't on the read-only allow-list (only VM query APIs are permitted) |
 
 Increase log detail with `--set logLevel=debug` (Helm) or `telemetry.logs.level:
 debug` in the config file.

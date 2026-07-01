@@ -3,7 +3,9 @@
 The LeanSignal Agent is an Apache-2.0 OpenTelemetry Collector distribution that
 writes everything to a co-located VictoriaMetrics and forwards a demanded subset
 to a central dataplane, keeping a live metric index in sync with the LeanSignal
-control plane.
+control plane. It dials **out** over a single gRPC stream that carries the index
+up, the demand list down, and edit-mode queries both ways — so the LeanSignal UI
+can read your private full-fidelity store without it ever being exposed.
 
 ## Contents
 
@@ -18,7 +20,7 @@ control plane.
   - [Windows](install-windows.md)
 
 ### Understanding it
-- [Architecture](architecture.md) — data flow, storage tiers, the demand/index model
+- [Architecture](architecture.md) — data flow, storage tiers, the demand/index model, control plane vs data plane, the query tunnel
 - [Components](components.md) — the custom tracker, demand filter, and edge controller
 
 ### Developers & maintainers

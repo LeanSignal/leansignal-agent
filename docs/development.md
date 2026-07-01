@@ -65,51 +65,83 @@ Fast iteration on component code doesn't need OCB: `go test -race ./components/.
 
 ## Running the agent locally
 
-You can run the whole pipeline on your machine.
+`make local-build` compiles the distribution into `_build/leansignal-agent`; the
+run targets (`local-run`, `cloud-run`) execute that **prebuilt** binary without
+recompiling. So the inner loop is:
+
+```
+edit components/** → make local-build → make local-run
+```
+
+### Build once: `make local-build`
+
+Compiles `_build/` (runs OCB first if the generated sources don't exist yet).
+Re-run it after any change under `components/**` — edits are picked up through a
+local `replace` directive, so it's incremental (~seconds) and doesn't re-run OCB.
+Changing `manifest.yaml` (added/removed a component or dependency) is handled
+automatically: it re-runs OCB. For pure component work you don't need to build at
+all — `go test -race ./components/...`.
 
 ### Against a local lean-api: `make local-run`
 
-If you're running lean-api locally (on `:8080`) plus a local VictoriaMetrics
-(`vm-ag` on `:8482`), a single command compiles and runs the agent wired to them:
-
-```bash
-make local-run
-```
-
-It recompiles `_build/` and runs the agent with `config/agent-config.local.yaml`
-and these defaults (override any on the command line):
+Runs the prebuilt binary with `config/agent-config.local.yaml`, wired to a local
+lean-api (gRPC `:9090`, h2c). Defaults (override any on the command line):
 
 | Make var | Default | Meaning |
 |----------|---------|---------|
 | `LOCAL_ENDPOINT` | `localhost:9090` | lean-api gRPC target (h2c, no TLS) |
-| `LOCAL_AGENT_KEY` | `deadbeef-dead-beef-dead-beefdeadbeef` | agent key |
-| `LOCAL_VM` | `http://localhost:8482/api/v1/write` | local vm-ag (everything) |
-| `LOCAL_DATAPLANE` | `http://localhost:8483/api/v1/write` | dataplane VM (demanded subset) |
+| `LOCAL_AGENT_KEY` | `deadbeef-…` | agent key (seed it in lean-api's dev DB via `make local-seed`) |
+| `LOCAL_VM` | `http://localhost:8482` | local vm-ag **base URL** (write + query) |
+| `LOCAL_DATAPLANE` | `http://localhost:8483` | dataplane VM **base URL** (demanded subset) |
 
-Run **two local VictoriaMetrics** first — one for everything, one for the
-demanded subset (no vmauth needed locally; the agent writes to the dataplane VM
-directly):
+Endpoints are **base URLs** — the config appends `/api/v1/write` for the exporter
+and the agent appends `/api/v1/query…` for the tunnel, so one value drives both.
+
+Start two local VictoriaMetrics (everything + demanded subset; no vmauth locally),
+build, then run:
 
 ```bash
 docker run --rm -d -p 8482:8428 victoriametrics/victoria-metrics:v1.111.0   # vm-ag
 docker run --rm -d -p 8483:8428 victoriametrics/victoria-metrics:v1.111.0   # dataplane
+make local-build
 make local-run
 ```
 
-Because this connects to a real local lean-api, the metric index syncs and a
-demand list actually arrives — so the `metrics/filtered` pipeline populates (the
-dev config sets `log_filtered: true`, so the demand filter logs what it drops).
+Because this connects to a real local lean-api, the index syncs and a demand list
+arrives — so `metrics/filtered` populates (the dev config logs drops), and the
+UI's **edit-mode query tunnel** (lean-api → this agent → vm-ag) works end to end.
+Verify it:
 
-### Rebuilding after you change agent code
+```bash
+# direct from the local store
+curl -s 'http://localhost:8482/api/v1/query?query=system_cpu_load_average_1m'
+# the SAME query tunneled through lean-api (dev bypasses the session guard)
+curl -s 'http://localhost:8080/api/v1/metrics/avm_proxy/api/v1/query?query=system_cpu_load_average_1m'
+```
 
-- **Changed component code** (`components/**`) → `make compile`. It recompiles
-  `_build/` only; the generated distribution references your packages through a
-  local `replace` directive, so edits are picked up **without** re-running OCB
-  (incremental, ~seconds). `make local-run` runs this for you.
-- **Changed `manifest.yaml`** (added/removed a component or dependency) →
-  `make generate` (re-runs OCB) then `make compile`. `make build` does both.
+### Against a cloud tenant: `make cloud-run`
 
-So the inner loop is simply: edit a component → `make local-run`.
+Point the same local agent at a deployed tenant over **TLS (443)**. You give it
+the tenant name and its agent key; the gRPC and ingest hosts are derived:
+
+```bash
+make cloud-run TENANT=mb1 CLOUD_AGENT_KEY=<the tenant's agent key>
+```
+
+| Make var | Default | Meaning |
+|----------|---------|---------|
+| `TENANT` | `mb1` | tenant name; derives the hosts below |
+| `CLOUD_DOMAIN` | `eu11.leansignal.io` | cluster domain |
+| `CLOUD_ENDPOINT` | `$(TENANT)-grpc.$(CLOUD_DOMAIN):443` | gRPC control (TLS) |
+| `CLOUD_DATAPLANE` | `https://$(TENANT)-ingest.$(CLOUD_DOMAIN)` | vmauth ingest base |
+| `CLOUD_VM` | `http://localhost:8482` | local VM base — unchanged; the agent's own store |
+| `CLOUD_AGENT_KEY` | — (**required**) | tenant agent key (from its `agents` table) |
+
+It uses `config/agent-config.cloud.yaml` (TLS on, `insecure: false`). The local VM
+stays local — the agent always keeps full fidelity next to itself; the cloud reads
+it back over the gRPC tunnel. The `…-api` host is REST/UI only and is not used by
+the agent. Note: the ingest/dataplane path only works once the tenant's vmauth is
+deployed; the control channel, local store, and edit-mode tunnel work regardless.
 
 ### Standalone (no local lean-api)
 
@@ -130,7 +162,7 @@ components):
 
 ```bash
 # 1. Build the distribution
-make build                       # -> _build/leansignal-agent
+make local-build                 # -> _build/leansignal-agent
 
 # 2. Start a local VictoriaMetrics
 docker run --rm -p 8428:8428 victoriametrics/victoria-metrics:v1.111.0
