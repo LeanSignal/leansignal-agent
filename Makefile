@@ -55,7 +55,7 @@ vet: ## go vet
 	go vet ./...
 
 # golangci-lint pinned to the CI version so local == CI (see .github/workflows/ci.yml).
-GOLANGCI_VERSION ?= 1.64.8
+GOLANGCI_VERSION ?= 2.12.2
 GOLANGCI         := $(GOBIN)/golangci-lint
 
 .PHONY: golangci-install

@@ -4,18 +4,17 @@ go 1.25.0
 
 require (
 	github.com/zeebo/xxh3 v1.1.0
-	go.opentelemetry.io/collector/component v1.61.0
-	go.opentelemetry.io/collector/consumer v1.61.0
-	go.opentelemetry.io/collector/extension v1.61.0
-	go.opentelemetry.io/collector/pdata v1.61.0
-	go.opentelemetry.io/collector/processor v1.61.0
+	go.opentelemetry.io/collector/component v1.47.0
+	go.opentelemetry.io/collector/consumer v1.47.0
+	go.opentelemetry.io/collector/extension v1.47.0
+	go.opentelemetry.io/collector/pdata v1.47.0
+	go.opentelemetry.io/collector/processor v1.47.0
 	go.uber.org/zap v1.28.0
 	google.golang.org/grpc v1.81.1
 )
 
 require (
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect
-	go.opentelemetry.io/collector/internal/componentalias v0.155.0 // indirect
 	golang.org/x/net v0.55.0 // indirect
 	golang.org/x/text v0.37.0 // indirect
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20260226221140-a57be14db171 // indirect

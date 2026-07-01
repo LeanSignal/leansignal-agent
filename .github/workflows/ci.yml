@@ -42,10 +42,9 @@ jobs:
           go-version-file: go.mod
       - uses: golangci/golangci-lint-action@v9
         with:
-          # Pinned to the last v1 release: golangci-lint v2 (what `latest` now
-          # resolves to) requires a v2-schema .golangci.yml. Migrate the config to
-          # v2 and bump the action separately if/when you want v2.
-          version: v1.64.8
+          # golangci-lint v2 (v2-schema .golangci.yml). Keep in sync with
+          # GOLANGCI_VERSION in the Makefile so local `make lint` == CI.
+          version: v2.12.2
 
   ocb:
     name: OCB generate + compile
