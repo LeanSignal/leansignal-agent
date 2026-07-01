@@ -2,7 +2,7 @@
 # Release builds are driven by GitHub Actions + goreleaser; these targets are
 # for local development and CI checks.
 
-OCB_VERSION    ?= 0.155.0
+OCB_VERSION    ?= 0.141.0
 BINARY         ?= leansignal-agent
 BUILD_DIR      ?= _build
 GOBIN          ?= $(shell go env GOPATH)/bin

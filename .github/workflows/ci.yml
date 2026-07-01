@@ -64,7 +64,7 @@ jobs:
           go-version-file: go.mod
           cache: true
       - name: Install OCB
-        run: go install go.opentelemetry.io/collector/cmd/builder@v0.155.0
+        run: go install go.opentelemetry.io/collector/cmd/builder@v0.141.0
       - name: Generate distribution
         run: "$(go env GOPATH)/bin/builder --config manifest.yaml --skip-compilation"
       - name: Compile distribution
