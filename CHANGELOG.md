@@ -6,6 +6,25 @@ All notable changes to this project are documented here. The format is based on
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-07-01
+
+### Added
+- **In-place upgrade tooling** for host installs: `scripts/install/upgrade.sh`
+  (Linux/macOS) and `scripts/install/upgrade.ps1` (Windows). By default it upgrades
+  only the agent binary — VictoriaMetrics keeps running and its on-disk data is
+  never touched. `--with-vm` also upgrades VictoriaMetrics, taking an **enforced
+  pre-upgrade snapshot** (aborts if it can't be confirmed; `--skip-snapshot` to
+  override) and swapping against the same data path. Both paths verify the release
+  checksum, health-check the service, and **roll back automatically** on failure.
+- Releases now publish a **`VERSIONS.txt`** manifest (agent + bundled
+  VictoriaMetrics versions) so the upgrader can resolve which VM version to install.
+- **Upgrade documentation**: [`docs/upgrading.md`](docs/upgrading.md) plus
+  per-platform upgrade sections in the README and each install guide.
+
+### Fixed
+- Windows installer (`install.ps1`) checksum verification parsed the wrong token
+  and silently skipped the integrity check; it now reads the matched line correctly.
+
 ## [0.1.0] - 2026-07-01
 
 ### Added
@@ -26,5 +45,6 @@ All notable changes to this project are documented here. The format is based on
 - GitHub Actions CI + goreleaser release pipeline (cross-platform binaries,
   multi-arch images, VictoriaMetrics mirroring + combined bundles).
 
-[Unreleased]: https://github.com/LeanSignal/leansignal-agent/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/LeanSignal/leansignal-agent/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/LeanSignal/leansignal-agent/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/LeanSignal/leansignal-agent/releases/tag/v0.1.0

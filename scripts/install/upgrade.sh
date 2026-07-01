@@ -143,12 +143,17 @@ tmp="$(mktemp -d)"; trap 'rm -rf "$tmp"' EXIT
 fetch() { curl -fsSL -o "$tmp/$1" "${base}/$1" || err "download failed: ${base}/$1"; }
 
 # Fail-CLOSED integrity check: a real release always ships the checksum file, so
-# a missing file or a missing line means "don't install this unverified".
+# a missing file or a missing line means "don't install this unverified". Only the
+# EXACT anchored line is fed to the hash checker — an unanchored grep could pull in
+# a sidecar/substring line (e.g. a .sig entry, or a name vs ./name pair) and make
+# sha256sum -c fail on an otherwise-valid asset.
 verify() { # $1 = asset, $2 = checksums file (already in $tmp)
+  local line
   [ -f "$tmp/$2" ] || err "checksum file $2 unavailable; refusing to install $1 unverified"
-  grep -q " ${1}\$\| \./${1}\$" "$tmp/$2" || err "no pinned checksum for $1 in $2; refusing to install unverified"
-  ( cd "$tmp" && { sha256sum -c <(grep -- "$1" "$2") 2>/dev/null \
-      || shasum -a 256 -c <(grep -- "$1" "$2") 2>/dev/null; } ) \
+  line="$(grep -E " ${1}\$| \./${1}\$" "$tmp/$2" | head -1)"
+  [ -n "$line" ] || err "no pinned checksum for $1 in $2; refusing to install unverified"
+  ( cd "$tmp" && { printf '%s\n' "$line" | sha256sum -c - 2>/dev/null \
+      || printf '%s\n' "$line" | shasum -a 256 -c - 2>/dev/null; } ) \
     && info "checksum verified: $1" || err "checksum mismatch: $1 (aborting, nothing changed)"
 }
 
@@ -249,8 +254,8 @@ if [ "$WITH_VM" -eq 1 ]; then
       verify "$vm_archive" "bundle-checksums.txt"
 
       vmx="$tmp/vmx"; mkdir -p "$vmx"; tar -xzf "$tmp/$vm_archive" -C "$vmx"
-      newvm="$(find "$vmx" -type f -name 'victoria-metrics*prod*' | head -1)"
-      [ -n "$newvm" ] || newvm="$(find "$vmx" -type f -name 'victoria-metrics*' | head -1)"
+      newvm="$(find "$vmx" -type f -name 'victoria-metrics*prod*' | head -1 || true)"
+      [ -n "$newvm" ] || newvm="$(find "$vmx" -type f -name 'victoria-metrics*' | head -1 || true)"
       [ -n "$newvm" ] || err "VictoriaMetrics binary not found inside $vm_archive"
 
       vmbackup="$BIN_DIR/victoria-metrics.prev"
