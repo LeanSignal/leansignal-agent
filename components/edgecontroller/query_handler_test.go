@@ -5,6 +5,7 @@ package leansignaledgecontroller
 
 import (
 	"context"
+	"io"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -188,6 +189,92 @@ func TestQueryTunnelPathTraversalRejected(t *testing.T) {
 	time.Sleep(100 * time.Millisecond)
 	if got := atomic.LoadInt32(&hits); got != 0 {
 		t.Errorf("VM hits: got %d want 0", got)
+	}
+}
+
+func TestQueryTunnelPOSTBodyAndHeaders(t *testing.T) {
+	var gotMethod, gotBody, gotCT string
+	vm := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotMethod = r.Method
+		b, _ := io.ReadAll(r.Body)
+		gotBody = string(b)
+		gotCT = r.Header.Get("Content-Type")
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"status":"success"}`))
+	}))
+	defer vm.Close()
+
+	fake := &queryPushServer{
+		corrID: 5,
+		req: &agentv1.QueryRequest{
+			Method:  "POST",
+			Path:    "/api/v1/query",
+			Body:    []byte("query=up"),
+			Headers: []*agentv1.Header{{Name: "Content-Type", Values: []string{"application/x-www-form-urlencoded"}}},
+		},
+	}
+	defer startAgentForQuery(t, fake, vm.URL)()
+
+	waitFor(t, 3*time.Second, func() bool { _, _, ok := fake.firstResponse(); return ok })
+	resp, _, _ := fake.firstResponse()
+	if resp.GetStatusCode() != http.StatusOK {
+		t.Fatalf("status: got %d want 200 (err=%q)", resp.GetStatusCode(), resp.GetError())
+	}
+	if gotMethod != "POST" {
+		t.Errorf("VM method: got %q want POST", gotMethod)
+	}
+	if gotBody != "query=up" {
+		t.Errorf("VM body: got %q want query=up", gotBody)
+	}
+	if gotCT != "application/x-www-form-urlencoded" {
+		t.Errorf("VM Content-Type: got %q (request header not forwarded)", gotCT)
+	}
+}
+
+func TestQueryTunnelVMNon200PassThrough(t *testing.T) {
+	vm := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusBadRequest)
+		_, _ = w.Write([]byte(`{"status":"error","error":"bad query"}`))
+	}))
+	defer vm.Close()
+
+	fake := &queryPushServer{corrID: 6, req: &agentv1.QueryRequest{Method: "GET", Path: "/api/v1/query", RawQuery: "query=*invalid*"}}
+	defer startAgentForQuery(t, fake, vm.URL)()
+
+	waitFor(t, 3*time.Second, func() bool { _, _, ok := fake.firstResponse(); return ok })
+	resp, _, _ := fake.firstResponse()
+	if resp.GetStatusCode() != http.StatusBadRequest {
+		t.Fatalf("status: got %d want 400 (VM status must pass through)", resp.GetStatusCode())
+	}
+	if !strings.Contains(string(resp.GetBody()), "bad query") {
+		t.Errorf("VM error body not passed through: %q", resp.GetBody())
+	}
+}
+
+func TestQueryTunnelLocalVMUnreachable(t *testing.T) {
+	// 127.0.0.1:1 is reliably closed → the agent's HTTP call fails → 502.
+	fake := &queryPushServer{corrID: 8, req: &agentv1.QueryRequest{Method: "GET", Path: "/api/v1/query", RawQuery: "query=up"}}
+	defer startAgentForQuery(t, fake, "http://127.0.0.1:1")()
+
+	waitFor(t, 5*time.Second, func() bool { _, _, ok := fake.firstResponse(); return ok })
+	resp, _, _ := fake.firstResponse()
+	if resp.GetStatusCode() != http.StatusBadGateway {
+		t.Fatalf("status: got %d want 502", resp.GetStatusCode())
+	}
+	if resp.GetError() == "" {
+		t.Error("expected a non-empty error for an unreachable VM")
+	}
+}
+
+func TestQueryTunnelDisabledWhenNoURL(t *testing.T) {
+	// LocalVMQueryURL empty → the agent refuses with 503.
+	fake := &queryPushServer{corrID: 11, req: &agentv1.QueryRequest{Method: "GET", Path: "/api/v1/query", RawQuery: "query=up"}}
+	defer startAgentForQuery(t, fake, "")()
+
+	waitFor(t, 3*time.Second, func() bool { _, _, ok := fake.firstResponse(); return ok })
+	resp, _, _ := fake.firstResponse()
+	if resp.GetStatusCode() != http.StatusServiceUnavailable {
+		t.Fatalf("status: got %d want 503 (query disabled)", resp.GetStatusCode())
 	}
 }
 
