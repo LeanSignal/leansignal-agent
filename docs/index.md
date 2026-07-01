@@ -11,7 +11,8 @@ can read your private full-fidelity store without it ever being exposed.
 
 ### Users
 - [Usage](usage.md) — sending metrics, querying the local store, how demand works, troubleshooting
-- [Configuration](configuration.md) — settings, env vars, pipelines
+- [Connecting metrics sources](data-sources.md) — apps (OTLP), Prometheus exporters (node_exporter, …), host & Kubernetes
+- [Configuration](configuration.md) — settings, env vars, pipelines, applying config changes
 - [Host metrics (macOS) & self-monitoring](host-and-self-monitoring.md) — collect CPU/memory/disk, monitor the collector itself
 - Install:
   - [Kubernetes](install-kubernetes.md)
