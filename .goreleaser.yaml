@@ -57,47 +57,13 @@ archives:
 checksum:
   name_template: "checksums.txt"
 
-dockers:
-  - id: linux-amd64
-    goos: linux
-    goarch: amd64
-    dockerfile: Dockerfile
-    use: buildx
-    image_templates:
-      - "ghcr.io/leansignal/leansignal-agent:{{ .Version }}-amd64"
-      - "ghcr.io/leansignal/leansignal-agent:latest-amd64"
-    build_flag_templates:
-      - "--platform=linux/amd64"
-      - "--label=org.opencontainers.image.source=https://github.com/LeanSignal/leansignal-agent"
-      - "--label=org.opencontainers.image.version={{ .Version }}"
-      - "--label=org.opencontainers.image.licenses=Apache-2.0"
-    extra_files:
-      - config/agent-config.example.yaml
-  - id: linux-arm64
-    goos: linux
-    goarch: arm64
-    dockerfile: Dockerfile
-    use: buildx
-    image_templates:
-      - "ghcr.io/leansignal/leansignal-agent:{{ .Version }}-arm64"
-      - "ghcr.io/leansignal/leansignal-agent:latest-arm64"
-    build_flag_templates:
-      - "--platform=linux/arm64"
-      - "--label=org.opencontainers.image.source=https://github.com/LeanSignal/leansignal-agent"
-      - "--label=org.opencontainers.image.version={{ .Version }}"
-      - "--label=org.opencontainers.image.licenses=Apache-2.0"
-    extra_files:
-      - config/agent-config.example.yaml
-
-docker_manifests:
-  - name_template: "ghcr.io/leansignal/leansignal-agent:{{ .Version }}"
-    image_templates:
-      - "ghcr.io/leansignal/leansignal-agent:{{ .Version }}-amd64"
-      - "ghcr.io/leansignal/leansignal-agent:{{ .Version }}-arm64"
-  - name_template: "ghcr.io/leansignal/leansignal-agent:latest"
-    image_templates:
-      - "ghcr.io/leansignal/leansignal-agent:latest-amd64"
-      - "ghcr.io/leansignal/leansignal-agent:latest-arm64"
+# NOTE: Docker images are intentionally NOT built here. The self-hosted K8s runner
+# that does the (heavy) cross-compile has no Docker daemon, and goreleaser builds
+# on one runner. So the release workflow (.github/workflows/release.yml) builds the
+# images on free GitHub-hosted runners instead — each arch natively (amd64 on
+# ubuntu-latest, arm64 on ubuntu-24.04-arm) from the archives goreleaser produces
+# above — then merges them into a multi-arch manifest. goreleaser here owns only
+# the binaries, archives, checksums, and the GitHub release.
 
 # Optional supply-chain hardening for a future release (require syft / cosign):
 # sboms:
