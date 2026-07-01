@@ -10,10 +10,10 @@ permissions:
   packages: write   # push images + chart to ghcr
 
 jobs:
-  # 1) Heavy cross-compile on the big self-hosted K8s runner: binaries, archives,
-  #    checksums, GitHub Release, VM bundles. NO Docker here — the runner has no
-  #    Docker daemon and the cross-compile doesn't need one. Images are built on
-  #    hosted runners (job 2), which have Docker.
+  # Single job on the self-hosted runner (which now has Docker): goreleaser
+  # cross-compiles every platform AND builds + pushes the multi-arch images, then
+  # the VM bundles are attached. The arm64 image is a COPY-only Dockerfile, so the
+  # QEMU emulation the Set up QEMU step registers is barely exercised.
   release:
     name: Build & publish release
     runs-on: self-hosted
@@ -25,7 +25,24 @@ jobs:
       - uses: actions/setup-go@v6
         with:
           go-version-file: go.mod
-          cache: true
+          # false: this is a PERSISTENT self-hosted runner, so GOCACHE/GOMODCACHE
+          # already survive between runs on local disk. setup-go's actions/cache
+          # integration would otherwise tar+upload ~6 GB of full-contrib cache to
+          # GitHub every run (10-15 min of post-job overhead) for zero benefit.
+          cache: false
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Install OCB
         run: go install go.opentelemetry.io/collector/cmd/builder@v0.141.0
@@ -53,17 +70,14 @@ jobs:
         uses: goreleaser/goreleaser-action@v7
         with:
           version: "~> v2"
-          # -p 6: build all targets in parallel (there are 5). Each full-contrib
-          # link peaks ~5-6 GB RAM, so 5 concurrent ≈ 30 GB — comfortable on the
-          # 48 GB / 12-CPU self-hosted runner.
+          # -p 6: build all targets in parallel (there are 5). ~5-6 GB RAM each, so
+          # ≈30 GB — fine on the 48 GB / 12-CPU runner.
           args: release --clean -p 6
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          # Go's build temp ($WORK / go-build) defaults to /tmp, which on this
-          # runner is a small tmpfs. Five parallel full-contrib builds write tens
-          # of GB of intermediate .a files and exhaust it ("no space left on
-          # device"). Redirect it to the runner's disk-backed work volume (the same
-          # filesystem as GOCACHE, which has ample space).
+          # Go's build temp defaults to /tmp, a small tmpfs on this runner; five
+          # parallel full-contrib builds exhaust it. Redirect to the disk-backed
+          # work volume (same fs as GOCACHE, which has space).
           GOTMPDIR: ${{ runner.temp }}
           TMPDIR: ${{ runner.temp }}
 
@@ -90,7 +104,9 @@ jobs:
             gh release upload "${{ github.ref_name }}" bundles/* --clobber
           else
             # Minimal self-hosted runner without gh: upload via the GitHub API.
-            echo "gh not found — uploading bundles via the GitHub API with curl"
+            # (This is an expected fallback, not an error — install gh on the
+            # runner to use the gh path instead.)
+            echo "note: gh CLI not installed; uploading bundles via the GitHub API (expected, fine)"
             # Capture the release JSON fully first. Piping curl straight into
             # `grep -m1` closes the pipe early, so curl dies with error 23
             # (write failure) under `set -o pipefail`. A here-string can't SIGPIPE.
@@ -108,87 +124,6 @@ jobs:
             done
           fi
 
-  # 2) Build the image for each arch on its OWN native GitHub-hosted runner (which
-  #    have Docker): amd64 on ubuntu-latest, arm64 on the free ubuntu-24.04-arm —
-  #    native, no QEMU. The image is just the goreleaser-built binary copied into
-  #    distroless, so we pull that arch's archive from the release and build it.
-  image:
-    name: Image (${{ matrix.arch }})
-    runs-on: ${{ matrix.runner }}
-    needs: release
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - arch: amd64
-            runner: ubuntu-latest
-          - arch: arm64
-            runner: ubuntu-24.04-arm
-    steps:
-      - uses: actions/checkout@v4   # provides Dockerfile + config/agent-config.example.yaml
-
-      - name: Log in to GHCR
-        uses: docker/login-action@v4
-        with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Fetch the ${{ matrix.arch }} binary from the release
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          gh release download "${{ github.ref_name }}" \
-            --pattern "leansignal-agent_*_linux_${{ matrix.arch }}.tar.gz" \
-            --dir dist-dl
-          # goreleaser puts the binary at the archive root; extract just it into
-          # the repo root, next to Dockerfile + config/ from the checkout.
-          tar -xzf dist-dl/*.tar.gz -C . leansignal-agent
-          test -x ./leansignal-agent
-
-      - name: Build & push native ${{ matrix.arch }} image
-        run: |
-          IMAGE=ghcr.io/leansignal/leansignal-agent
-          VER="${GITHUB_REF_NAME#v}"
-          # Native build for the runner's arch — no --platform, no QEMU. The
-          # distroless base is pulled for the matching arch automatically.
-          docker build -f Dockerfile \
-            --label "org.opencontainers.image.source=https://github.com/LeanSignal/leansignal-agent" \
-            --label "org.opencontainers.image.version=${VER}" \
-            --label "org.opencontainers.image.licenses=Apache-2.0" \
-            -t "${IMAGE}:${VER}-${{ matrix.arch }}" \
-            -t "${IMAGE}:latest-${{ matrix.arch }}" \
-            .
-          docker push "${IMAGE}:${VER}-${{ matrix.arch }}"
-          docker push "${IMAGE}:latest-${{ matrix.arch }}"
-
-  # 3) Merge the two per-arch images into one multi-arch manifest (the tags users
-  #    pull: :<version> and :latest). Runs on hosted — needs Docker.
-  manifest:
-    name: Multi-arch manifest
-    runs-on: ubuntu-latest
-    needs: image
-    steps:
-      - name: Log in to GHCR
-        uses: docker/login-action@v4
-        with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v4
-
-      - name: Create & push multi-arch manifests
-        run: |
-          IMAGE=ghcr.io/leansignal/leansignal-agent
-          VER="${GITHUB_REF_NAME#v}"
-          docker buildx imagetools create -t "${IMAGE}:${VER}" \
-            "${IMAGE}:${VER}-amd64" "${IMAGE}:${VER}-arm64"
-          docker buildx imagetools create -t "${IMAGE}:latest" \
-            "${IMAGE}:latest-amd64" "${IMAGE}:latest-arm64"
-
-  # Chart publish needs no Docker (helm OCI push), so it stays on the self-hosted runner.
   helm:
     name: Publish Helm chart
     runs-on: self-hosted
