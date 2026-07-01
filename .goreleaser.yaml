@@ -57,12 +57,47 @@ archives:
 checksum:
   name_template: "checksums.txt"
 
-# NOTE: Docker images are intentionally NOT built here. Building the linux/arm64
-# image on an x86 runner needs slow QEMU emulation. Instead the release workflow
-# (.github/workflows/release.yml) builds each arch natively on its own runner
-# (amd64 on ubuntu-latest, arm64 on the free ubuntu-24.04-arm) from the archives
-# goreleaser produces above, then merges them into a multi-arch manifest.
-# goreleaser here owns only the binaries, archives, checksums, and GitHub release.
+dockers:
+  - id: linux-amd64
+    goos: linux
+    goarch: amd64
+    dockerfile: Dockerfile
+    use: buildx
+    image_templates:
+      - "ghcr.io/leansignal/leansignal-agent:{{ .Version }}-amd64"
+      - "ghcr.io/leansignal/leansignal-agent:latest-amd64"
+    build_flag_templates:
+      - "--platform=linux/amd64"
+      - "--label=org.opencontainers.image.source=https://github.com/LeanSignal/leansignal-agent"
+      - "--label=org.opencontainers.image.version={{ .Version }}"
+      - "--label=org.opencontainers.image.licenses=Apache-2.0"
+    extra_files:
+      - config/agent-config.example.yaml
+  - id: linux-arm64
+    goos: linux
+    goarch: arm64
+    dockerfile: Dockerfile
+    use: buildx
+    image_templates:
+      - "ghcr.io/leansignal/leansignal-agent:{{ .Version }}-arm64"
+      - "ghcr.io/leansignal/leansignal-agent:latest-arm64"
+    build_flag_templates:
+      - "--platform=linux/arm64"
+      - "--label=org.opencontainers.image.source=https://github.com/LeanSignal/leansignal-agent"
+      - "--label=org.opencontainers.image.version={{ .Version }}"
+      - "--label=org.opencontainers.image.licenses=Apache-2.0"
+    extra_files:
+      - config/agent-config.example.yaml
+
+docker_manifests:
+  - name_template: "ghcr.io/leansignal/leansignal-agent:{{ .Version }}"
+    image_templates:
+      - "ghcr.io/leansignal/leansignal-agent:{{ .Version }}-amd64"
+      - "ghcr.io/leansignal/leansignal-agent:{{ .Version }}-arm64"
+  - name_template: "ghcr.io/leansignal/leansignal-agent:latest"
+    image_templates:
+      - "ghcr.io/leansignal/leansignal-agent:latest-amd64"
+      - "ghcr.io/leansignal/leansignal-agent:latest-arm64"
 
 # Optional supply-chain hardening for a future release (require syft / cosign):
 # sboms:

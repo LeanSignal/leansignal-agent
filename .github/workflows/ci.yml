@@ -12,7 +12,7 @@ permissions:
 jobs:
   go:
     name: Go build & test
-    runs-on: ubuntu-latest
+    runs-on: self-hosted
     steps:
       - uses: actions/checkout@v4
 
@@ -34,7 +34,7 @@ jobs:
 
   golangci:
     name: golangci-lint
-    runs-on: ubuntu-latest
+    runs-on: self-hosted
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v6
@@ -48,17 +48,9 @@ jobs:
 
   ocb:
     name: OCB generate + compile
-    runs-on: ubuntu-latest
+    runs-on: self-hosted
     steps:
       - uses: actions/checkout@v4
-      # The full OpenTelemetry Contrib distribution is huge and exhausts the
-      # runner's ~14 GB disk ("no space left on device"). Reclaim ~20 GB of
-      # preinstalled toolchains we don't need before building.
-      - name: Free disk space
-        run: |
-          sudo rm -rf /usr/local/lib/android /usr/share/dotnet /opt/ghc /opt/hostedtoolcache/CodeQL
-          sudo docker image prune --all --force >/dev/null 2>&1 || true
-          df -h /
       - uses: actions/setup-go@v6
         with:
           go-version-file: go.mod
@@ -72,7 +64,7 @@ jobs:
 
   helm:
     name: Helm lint
-    runs-on: ubuntu-latest
+    runs-on: self-hosted
     steps:
       - uses: actions/checkout@v4
       - uses: azure/setup-helm@v4
@@ -85,7 +77,7 @@ jobs:
 
   shellcheck:
     name: Shellcheck installers
-    runs-on: ubuntu-latest
+    runs-on: self-hosted
     steps:
       - uses: actions/checkout@v4
       - name: Run shellcheck
