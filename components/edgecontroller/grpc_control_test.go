@@ -10,9 +10,10 @@ import (
 	"testing"
 	"time"
 
-	agentv1 "github.com/leansignal/leansignal-agent/proto/gen/leansignal/agent/v1"
 	"go.uber.org/zap"
 	"google.golang.org/grpc"
+
+	agentv1 "github.com/leansignal/leansignal-agent/proto/gen/leansignal/agent/v1"
 )
 
 // fakeControlServer is an in-process AgentControl server: it pushes a demand list

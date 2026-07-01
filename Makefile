@@ -10,15 +10,28 @@ GOBIN          ?= $(shell go env GOPATH)/bin
 # Pinned VictoriaMetrics version bundled with the agent (single source of truth).
 VM_VERSION     := $(shell cat VM_VERSION 2>/dev/null)
 
-# `make local-run` settings - override on the command line if your local setup differs.
+# Run settings - override on the command line as needed.
 # (Keep these free of trailing inline comments: make would fold the spaces into the value.)
-# LOCAL_ENDPOINT  = local lean-api gRPC target (h2c)
-# LOCAL_VM        = vm-ag (everything)
-# LOCAL_DATAPLANE = dataplane (demanded subset)
+#
+# AGENT_KEY is used by BOTH local-run and cloud-run. local-run falls back to the
+# dev key when AGENT_KEY is empty; cloud-run requires it. LOCAL_VM is the agent's
+# own local store (used in both modes).
+AGENT_KEY       ?=
+DEV_AGENT_KEY   := deadbeef-dead-beef-dead-beefdeadbeef
+LOCAL_VM        ?= http://localhost:8482
+LOCAL_DATAPLANE ?= http://localhost:8483
+
+# local-run: against a local lean-api (h2c).
 LOCAL_ENDPOINT  ?= localhost:9090
-LOCAL_AGENT_KEY ?= deadbeef-dead-beef-dead-beefdeadbeef
-LOCAL_VM        ?= http://localhost:8482/api/v1/write
-LOCAL_DATAPLANE ?= http://localhost:8483/api/v1/write
+
+# cloud-run: against a deployed tenant over TLS(443). Set AGENT_KEY + TENANT; the
+# gRPC control host and vmauth ingest host are derived as <tenant>-grpc.<domain>
+# and <tenant>-ingest.<domain>. Override CLOUD_ENDPOINT / CLOUD_DATAPLANE for a
+# non-standard host. (The <tenant>-api host is REST/UI only - not used here.)
+TENANT          ?= mb1
+CLOUD_DOMAIN    ?= eu11.leansignal.io
+CLOUD_ENDPOINT  ?= $(TENANT)-grpc.$(CLOUD_DOMAIN):443
+CLOUD_DATAPLANE ?= https://$(TENANT)-ingest.$(CLOUD_DOMAIN)
 
 .DEFAULT_GOAL := help
 
@@ -41,9 +54,29 @@ test: ## Run unit tests with the race detector
 vet: ## go vet
 	go vet ./...
 
+# golangci-lint pinned to the CI version so local == CI (see .github/workflows/ci.yml).
+GOLANGCI_VERSION ?= 1.64.8
+GOLANGCI         := $(GOBIN)/golangci-lint
+
+.PHONY: golangci-install
+golangci-install: ## Install golangci-lint pinned to the CI version (if missing/mismatched)
+	@$(GOLANGCI) version 2>/dev/null | grep -q "$(GOLANGCI_VERSION)" || { \
+	  echo "installing golangci-lint v$(GOLANGCI_VERSION)..."; \
+	  curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/HEAD/install.sh \
+	    | sh -s -- -b "$(GOBIN)" v$(GOLANGCI_VERSION); }
+
 .PHONY: lint
-lint: ## Run golangci-lint (if installed)
-	@command -v golangci-lint >/dev/null 2>&1 && golangci-lint run || echo "golangci-lint not installed; skipping"
+lint: golangci-install ## Run golangci-lint (same version + config as CI)
+	$(GOLANGCI) run
+
+.PHONY: lint-fix
+lint-fix: golangci-install ## Auto-fix gofmt/goimports and other fixable lint issues
+	$(GOLANGCI) run --fix
+
+.PHONY: install-hooks
+install-hooks: ## Enable the git pre-commit hook (runs 'make lint' on staged Go changes)
+	@git config core.hooksPath .githooks
+	@echo "installed: .githooks/pre-commit runs 'make lint' before each commit"
 
 .PHONY: license
 license: ## Add/refresh SPDX Apache-2.0 headers on first-party sources
@@ -65,14 +98,29 @@ compile: ## Fast recompile of _build/ - picks up component code edits via the lo
 .PHONY: build
 build: generate compile ## Full build: regenerate sources from manifest.yaml + compile
 
+.PHONY: local-build
+local-build: compile ## Build the local agent binary into _build/ (run once; re-run after code edits)
+
 .PHONY: local-run
-local-run: compile ## Build and run against a local lean-api (:8080) + local VictoriaMetrics (:8482)
+local-run: ## Run the pre-built agent vs local lean-api (:9090) + VM (:8482). Run `make local-build` first.
+	@[ -x "$(BUILD_DIR)/$(BINARY)" ] || { echo "$(BUILD_DIR)/$(BINARY) not found — run 'make local-build' first"; exit 1; }
 	@echo "endpoint=$(LOCAL_ENDPOINT)  vm-ag=$(LOCAL_VM)"
 	LEANSIGNAL_ENDPOINT="$(LOCAL_ENDPOINT)" \
-	LEANSIGNAL_AGENT_KEY="$(LOCAL_AGENT_KEY)" \
+	LEANSIGNAL_AGENT_KEY="$(or $(AGENT_KEY),$(DEV_AGENT_KEY))" \
 	LEANSIGNAL_LOCAL_VM="$(LOCAL_VM)" \
 	LEANSIGNAL_DATAPLANE_ENDPOINT="$(LOCAL_DATAPLANE)" \
 	$(BUILD_DIR)/$(BINARY) --config config/agent-config.local.yaml
+
+.PHONY: cloud-run
+cloud-run: ## Run the pre-built agent vs a CLOUD tenant over TLS(443). Requires AGENT_KEY (+ TENANT). Run `make local-build` first.
+	@[ -x "$(BUILD_DIR)/$(BINARY)" ] || { echo "$(BUILD_DIR)/$(BINARY) not found — run 'make local-build' first"; exit 1; }
+	@[ -n "$(AGENT_KEY)" ] || { echo "set AGENT_KEY=<tenant agent key> (see the tenant's agents table)"; exit 1; }
+	@echo "tenant=$(TENANT)  grpc=$(CLOUD_ENDPOINT)  ingest=$(CLOUD_DATAPLANE)  local-vm=$(LOCAL_VM)"
+	LEANSIGNAL_ENDPOINT="$(CLOUD_ENDPOINT)" \
+	LEANSIGNAL_AGENT_KEY="$(AGENT_KEY)" \
+	LEANSIGNAL_LOCAL_VM="$(LOCAL_VM)" \
+	LEANSIGNAL_DATAPLANE_ENDPOINT="$(CLOUD_DATAPLANE)" \
+	$(BUILD_DIR)/$(BINARY) --config config/agent-config.cloud.yaml
 
 .PHONY: snapshot
 snapshot: generate ## Local goreleaser snapshot (all platforms, no publish)

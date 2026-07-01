@@ -410,17 +410,6 @@ func buildPromSeriesFingerprint(metric string, labels map[string]string) string 
 	return b.String()
 }
 
-func formatPromLabelSet(labels map[string]string) string {
-	if len(labels) == 0 {
-		return "{}"
-	}
-	var b strings.Builder
-	b.WriteString("{")
-	writeSortedStringMap(&b, labels, "=", ",")
-	b.WriteString("}")
-	return b.String()
-}
-
 func writeSortedStringMap(b *strings.Builder, m map[string]string, kvSep string, entrySep string) {
 	keys := make([]string, 0, len(m))
 	for k := range m {

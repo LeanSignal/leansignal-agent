@@ -23,8 +23,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/leansignal/leansignal-agent/components/metricsindex"
-	agentv1 "github.com/leansignal/leansignal-agent/proto/gen/leansignal/agent/v1"
 	"go.opentelemetry.io/collector/component"
 	"go.uber.org/zap"
 	"google.golang.org/grpc"
@@ -32,6 +30,9 @@ import (
 	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/keepalive"
 	"google.golang.org/grpc/metadata"
+
+	leansignalmetricsindex "github.com/leansignal/leansignal-agent/components/metricsindex"
+	agentv1 "github.com/leansignal/leansignal-agent/proto/gen/leansignal/agent/v1"
 )
 
 // agentVersion is reported to the backend in the Hello message.
@@ -54,15 +55,20 @@ type edgeControllerExtension struct {
 	demandTimeseriesCache     *DemandTimeseriesCache
 
 	cancelFn context.CancelFunc
+	rootCtx  context.Context // cancelled on Shutdown; parents query requests
 	wg       sync.WaitGroup
 
-	mu      sync.Mutex                          // guards stream lifecycle
-	stream  agentv1.AgentControl_ConnectClient  // nil when disconnected
-	writeMu sync.Mutex                          // serialises stream.Send (not concurrency-safe)
+	mu      sync.Mutex                         // guards stream lifecycle
+	stream  agentv1.AgentControl_ConnectClient // nil when disconnected
+	writeMu sync.Mutex                         // serialises stream.Send (not concurrency-safe)
 
 	corrMu  sync.Mutex
 	corrSeq uint64
 	pending map[uint64]chan *agentv1.Ack
+
+	// querySem bounds concurrent local-VM query requests so a burst of UI panels
+	// can't spawn unbounded goroutines or hammer the local VM.
+	querySem chan struct{}
 }
 
 func newEdgeControllerExtension(logger *zap.Logger, config *Config) *edgeControllerExtension {
@@ -73,6 +79,7 @@ func newEdgeControllerExtension(logger *zap.Logger, config *Config) *edgeControl
 		discoveredTimeseriesCache: NewDiscoveredTimeseriesCache(logger),
 		demandTimeseriesCache:     NewDemandTimeseriesCache(logger),
 		pending:                   make(map[uint64]chan *agentv1.Ack),
+		querySem:                  make(chan struct{}, maxConcurrentQueries),
 	}
 }
 
@@ -92,6 +99,7 @@ func (e *edgeControllerExtension) Start(_ context.Context, _ component.Host) err
 
 	ctx, cancel := context.WithCancel(context.Background())
 	e.cancelFn = cancel
+	e.rootCtx = ctx
 
 	e.wg.Add(1)
 	go e.connectionLoop(ctx)
@@ -294,6 +302,16 @@ func (e *edgeControllerExtension) handleServerMessage(msg *agentv1.ServerMessage
 		// TODO: apply config to the collector.
 		e.logger.Info("COMMAND_RECEIVED: update_config")
 		e.replyCommand(msg.GetCorrelationId(), true, "config received")
+	case *agentv1.ServerMessage_QueryRequest:
+		// Run the query off the recvLoop so a slow local-VM call never stalls
+		// control-message processing; the goroutine always replies (success or error).
+		corrID := msg.GetCorrelationId()
+		req := body.QueryRequest
+		e.wg.Add(1)
+		go func() {
+			defer e.wg.Done()
+			e.handleQueryRequest(corrID, req)
+		}()
 	default:
 		e.logger.Warn("Received unknown server message body")
 	}

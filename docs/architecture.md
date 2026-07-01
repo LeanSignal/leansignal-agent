@@ -29,11 +29,53 @@ LeanSignal control plane, and writes to two tiers of storage.
   └────────────────────────────────────────────────────────────────────────┘
 
   leansignal_edge_controller (extension, runs alongside the pipelines)
-    • persistent gRPC stream to the LeanSignal API
+    • ONE persistent, outbound gRPC stream to the LeanSignal API (agent dials out)
     • receives the in-process index batches → maintains 3 caches
     • pushes index create/update/delete to the control plane
     • receives the demand list → exposed to the demand filter
+    • answers edit-mode QUERY requests pushed by the control plane by running them
+      (read-only, allow-listed) against the local VictoriaMetrics and streaming
+      the response back — see "Query tunnel" below
 ```
+
+## Control plane vs data plane
+
+Two independent paths connect the agent to LeanSignal:
+
+- **Control plane — one gRPC bidirectional stream** (`AgentControl.Connect`). The
+  agent dials out and keeps it open; over it flow the metric index (agent → API),
+  the demand list (API → agent), heartbeats, and edit-mode query requests/responses
+  (both ways). Authenticated by the agent key in gRPC metadata. In production this
+  is TLS on 443 via the tenant's `…-grpc` ingress; locally it is plaintext h2c.
+- **Data plane — Prometheus remote-write** of the demanded subset to the central
+  VictoriaMetrics. In production this goes through **vmauth**, which authenticates
+  the agent key (bearer token) and forwards to the tenant's central store; locally
+  it writes straight to a VM. The agent itself is vmauth-agnostic — it just does
+  remote-write to a configurable URL with an optional bearer header.
+
+Because the agent only ever dials **out**, it needs no inbound connectivity and
+the local store is never exposed to the internet.
+
+## Query tunnel (reading the local store from the UI)
+
+The local VictoriaMetrics holds full fidelity but sits in a private network, so
+the LeanSignal UI cannot reach it directly. Instead, when a user opens a dashboard
+in **edit mode**, lean-api pushes the VictoriaMetrics query **down the existing
+gRPC stream**; the edge controller runs it against the local store's query API and
+streams the response back, correlated by request id. To lean-api's HTTP caller it
+looks like a synchronous request; on the wire it is one request/response pair
+multiplexed onto the control stream (the same pattern Kubernetes' Konnectivity
+uses to reach workloads behind a firewall).
+
+- Only **read-only** VictoriaMetrics paths are allowed (`/api/v1/query`,
+  `/query_range`, `/series`, `/labels`, `/label/<name>/values`, `/metadata`,
+  `/status/*`; `GET`/`POST` only). Admin, import, delete and write paths are
+  refused — defense in depth, since lean-api is already authenticated.
+- The query base is `local_vm_query_url` (see [configuration.md](configuration.md));
+  the agent appends the API path itself.
+- If the agent is offline, lean-api answers the UI with `503` immediately; a slow
+  query maps to `504`. View-mode dashboards read the **central** store directly and
+  don't use the tunnel.
 
 ## Storage tiers
 
@@ -65,7 +107,7 @@ cardinality and cost.
 |-----------|------|------|
 | `leansignalmetrics_tracker` | processor | builds & broadcasts the timeseries index (pass-through) |
 | `leansignal_demand_filter` | processor | drops metrics not on the demand list |
-| `leansignal_edge_controller` | extension | gRPC control plane + index/demand caches |
+| `leansignal_edge_controller` | extension | gRPC control plane + index/demand caches + edit-mode query tunnel |
 | `metricsindex` | library | shared fingerprint types + in-process pub/sub |
 
 See [components.md](components.md) for details.

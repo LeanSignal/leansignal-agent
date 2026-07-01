@@ -1,0 +1,18 @@
+#!/usr/bin/env bash
+# LeanSignal pre-commit hook — runs the SAME golangci-lint as CI on staged Go
+# changes, so lint failures are caught before push instead of in CI.
+#
+# Enable once with:  make install-hooks   (sets core.hooksPath=.githooks)
+# Skip for one commit with:  git commit --no-verify
+set -euo pipefail
+
+# Only lint when Go files are staged — keep docs-only commits fast.
+if git diff --cached --name-only --diff-filter=ACM | grep -q '\.go$'; then
+  echo "pre-commit: running golangci-lint (make lint)…"
+  if ! make -s lint; then
+    echo >&2
+    echo "pre-commit: lint failed. Fix with 'make lint-fix' (auto-formats), re-stage," >&2
+    echo "            then commit again — or 'git commit --no-verify' to skip." >&2
+    exit 1
+  fi
+fi

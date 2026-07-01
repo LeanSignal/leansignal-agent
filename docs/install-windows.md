@@ -6,12 +6,10 @@ Run from an **elevated** (Administrator) PowerShell. amd64 is supported.
 ## Install
 
 ```powershell
-# Download and run with arguments:
+# Download and run (you only need your agent key + tenant):
 $u = "https://raw.githubusercontent.com/LeanSignal/leansignal-agent/main/scripts/install/install.ps1"
 Invoke-WebRequest $u -OutFile install.ps1
-.\install.ps1 -AgentKey YOUR_KEY `
-  -Endpoint api.leansignal.com:443 `
-  -DataplaneEndpoint https://dataplane.example.com/api/v1/write
+.\install.ps1 -AgentKey YOUR_KEY -Tenant YOUR_TENANT
 ```
 
 ### Parameters
@@ -19,10 +17,26 @@ Invoke-WebRequest $u -OutFile install.ps1
 | Parameter | Meaning |
 |-----------|---------|
 | `-AgentKey` | agent auth key (required) |
-| `-Endpoint` | LeanSignal gRPC endpoint (host:port) (required) |
-| `-DataplaneEndpoint` | central remote-write URL (required) |
+| `-Tenant` | tenant name; derives `<tenant>-grpc.<domain>:443` and `…-ingest.<domain>` (required unless `-Endpoint` is given) |
+| `-Domain` | cluster domain (default: `eu11.leansignal.io`) |
+| `-Endpoint` | advanced: gRPC control host `host:port`, overrides the derived one |
+| `-DataplaneEndpoint` | advanced: remote-write URL, overrides the derived one |
 | `-Version` | specific version (default: latest) |
 | `-NoVM` | don't install the local VictoriaMetrics |
+
+## It's already collecting
+
+The installer creates and starts the Windows services, so the agent is running
+now. **Host metrics — CPU, memory, disk, network — are collected automatically**;
+nothing else to configure. Verify:
+
+```powershell
+Invoke-RestMethod http://127.0.0.1:13133/                              # health check
+Invoke-RestMethod http://127.0.0.1:8428/api/v1/label/__name__/values   # metric names in the local store
+```
+
+To send your own application metrics, point any OpenTelemetry SDK at the agent's
+OTLP endpoint (`http://127.0.0.1:4318` for HTTP, `:4317` for gRPC).
 
 ## What it installs
 

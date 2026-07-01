@@ -4,10 +4,13 @@
 # Installs the agent (OpenTelemetry Collector) and a co-located VictoriaMetrics,
 # then registers them as services (systemd on Linux, launchd on macOS).
 #
-# Quick start:
+# Quick start — you only need your agent key + tenant; the gRPC control host and
+# the ingest host are derived as <tenant>-grpc.<domain> and <tenant>-ingest.<domain>:
 #   curl -fsSL https://raw.githubusercontent.com/LeanSignal/leansignal-agent/main/scripts/install/install.sh \
-#     | sudo bash -s -- --agent-key KEY --endpoint wss://api.leansignal.com/api/v1/agents/ws/ \
-#        --dataplane-endpoint https://dataplane.example.com/api/v1/write
+#     | sudo bash -s -- --agent-key KEY --tenant TENANT
+#
+# Advanced: override the derived hosts with --endpoint / --dataplane-endpoint, or
+# the domain with --domain (default: eu11.leansignal.io).
 #
 # Review this script before piping it to a shell.
 set -euo pipefail
@@ -16,6 +19,8 @@ REPO="${LEANSIGNAL_REPO:-LeanSignal/leansignal-agent}"
 VERSION="${VERSION:-latest}"
 VM_VERSION_OVERRIDE="${VM_VERSION:-}"
 AGENT_KEY=""
+TENANT=""
+DOMAIN="${LEANSIGNAL_DOMAIN:-eu11.leansignal.io}"
 ENDPOINT=""
 DATAPLANE_ENDPOINT=""
 INSTALL_VM=1
@@ -28,10 +33,15 @@ err()  { printf '\033[0;31m[leansignal] ERROR:\033[0m %s\n' "$*" >&2; exit 1; }
 
 usage() {
   cat <<'EOF'
-Usage: install.sh [options]
-  --agent-key KEY             Agent authentication key (required)
-  --endpoint URL             LeanSignal WebSocket URL (required)
-  --dataplane-endpoint URL   Central remote-write URL (required)
+Usage: install.sh --agent-key KEY --tenant NAME [options]
+  --agent-key KEY            Agent authentication key (required)
+  --tenant NAME              Tenant name; derives the gRPC + ingest hosts
+                             (required unless --endpoint is given)
+  --domain DOMAIN            Cluster domain (default: eu11.leansignal.io)
+  --endpoint HOST:PORT       Advanced: gRPC control host, overrides the derived
+                             <tenant>-grpc.<domain>:443
+  --dataplane-endpoint URL   Advanced: remote-write URL, overrides the derived
+                             https://<tenant>-ingest.<domain>/api/v1/write
   --version vX.Y.Z           Agent version to install (default: latest)
   --vm-version X.Y.Z         Override bundled VictoriaMetrics version
   --no-vm                    Do not install the local VictoriaMetrics
@@ -43,6 +53,8 @@ EOF
 while [ $# -gt 0 ]; do
   case "$1" in
     --agent-key) AGENT_KEY="$2"; shift 2;;
+    --tenant) TENANT="$2"; shift 2;;
+    --domain) DOMAIN="$2"; shift 2;;
     --endpoint) ENDPOINT="$2"; shift 2;;
     --dataplane-endpoint) DATAPLANE_ENDPOINT="$2"; shift 2;;
     --version) VERSION="$2"; shift 2;;
@@ -76,13 +88,9 @@ info "platform: ${PLATFORM}/${ARCH}"
 # stdin is the script itself). Non-interactive runs fall through to the errors below.
 prompt_missing() {
   [ -r /dev/tty ] || return 0
-  if [ -z "$ENDPOINT" ]; then
-    printf 'LeanSignal API WebSocket URL (e.g. wss://api.leansignal.com/api/v1/agents/ws/): ' >/dev/tty
-    IFS= read -r ENDPOINT </dev/tty || true
-  fi
-  if [ -z "$DATAPLANE_ENDPOINT" ]; then
-    printf 'Central dataplane remote-write URL (e.g. https://dataplane.example.com/api/v1/write): ' >/dev/tty
-    IFS= read -r DATAPLANE_ENDPOINT </dev/tty || true
+  if [ -z "$ENDPOINT" ] && [ -z "$TENANT" ]; then
+    printf 'Tenant name (control host becomes <tenant>-grpc.%s): ' "$DOMAIN" >/dev/tty
+    IFS= read -r TENANT </dev/tty || true
   fi
   if [ -z "$AGENT_KEY" ]; then
     printf 'Agent key / secret token (input hidden): ' >/dev/tty
@@ -92,9 +100,16 @@ prompt_missing() {
 }
 prompt_missing
 
-[ -n "$ENDPOINT" ] || err "LeanSignal API URL is required (--endpoint)"
 [ -n "$AGENT_KEY" ] || err "agent key is required (--agent-key)"
-[ -n "$DATAPLANE_ENDPOINT" ] || err "dataplane URL is required (--dataplane-endpoint)"
+# The control + ingest hosts are derived from the tenant unless overridden.
+if [ -z "$ENDPOINT" ] || [ -z "$DATAPLANE_ENDPOINT" ]; then
+  [ -n "$TENANT" ] || err "tenant is required (--tenant), or pass --endpoint and --dataplane-endpoint explicitly"
+  [ -n "$DOMAIN" ] || err "domain is required (--domain)"
+fi
+[ -n "$ENDPOINT" ] || ENDPOINT="${TENANT}-grpc.${DOMAIN}:443"
+[ -n "$DATAPLANE_ENDPOINT" ] || DATAPLANE_ENDPOINT="https://${TENANT}-ingest.${DOMAIN}/api/v1/write"
+info "control endpoint:  ${ENDPOINT}"
+info "dataplane endpoint: ${DATAPLANE_ENDPOINT}"
 
 # --- resolve version ---------------------------------------------------------
 if [ "$VERSION" = "latest" ]; then

@@ -18,7 +18,16 @@ jobs:
         with:
           fetch-depth: 0   # goreleaser needs full history for the changelog
 
-      - uses: actions/setup-go@v5
+      # goreleaser cross-compiles the full Contrib distribution for every platform
+      # plus builds images — reclaim ~20 GB of unused toolchains so the runner's
+      # disk doesn't fill up ("no space left on device").
+      - name: Free disk space
+        run: |
+          sudo rm -rf /usr/local/lib/android /usr/share/dotnet /opt/ghc /opt/hostedtoolcache/CodeQL
+          sudo docker image prune --all --force >/dev/null 2>&1 || true
+          df -h /
+
+      - uses: actions/setup-go@v6
         with:
           go-version-file: go.mod
           cache: true
@@ -27,10 +36,10 @@ jobs:
         uses: docker/setup-qemu-action@v3
 
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
+        uses: docker/setup-buildx-action@v4
 
       - name: Log in to GHCR
-        uses: docker/login-action@v3
+        uses: docker/login-action@v4
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
@@ -51,7 +60,7 @@ jobs:
         run: "$(go env GOPATH)/bin/builder --config manifest.yaml --skip-compilation"
 
       - name: Run goreleaser
-        uses: goreleaser/goreleaser-action@v6
+        uses: goreleaser/goreleaser-action@v7
         with:
           version: "~> v2"
           args: release --clean

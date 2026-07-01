@@ -57,6 +57,24 @@ app.kubernetes.io/instance: {{ .Release.Name }}
 {{- join ", " $r -}}
 {{- end -}}
 
+{{/* Control-plane gRPC endpoint: explicit value, else derived <tenant>-grpc.<domain>:443 */}}
+{{- define "leansignal-agent.controlEndpoint" -}}
+{{- if .Values.leansignal.endpoint -}}
+{{- .Values.leansignal.endpoint -}}
+{{- else if .Values.leansignal.tenant -}}
+{{- printf "%s-grpc.%s:443" .Values.leansignal.tenant .Values.leansignal.domain -}}
+{{- end -}}
+{{- end -}}
+
+{{/* Dataplane remote-write URL: explicit value, else derived <tenant>-ingest.<domain> */}}
+{{- define "leansignal-agent.dataplaneEndpoint" -}}
+{{- if .Values.dataplane.endpoint -}}
+{{- .Values.dataplane.endpoint -}}
+{{- else if .Values.leansignal.tenant -}}
+{{- printf "https://%s-ingest.%s/api/v1/write" .Values.leansignal.tenant .Values.leansignal.domain -}}
+{{- end -}}
+{{- end -}}
+
 {{/* Local VM write endpoint: explicit value, else the bundled subchart's service, else localhost */}}
 {{- define "leansignal-agent.localVMEndpoint" -}}
 {{- if .Values.localVM.writeEndpoint -}}
@@ -65,5 +83,19 @@ app.kubernetes.io/instance: {{ .Release.Name }}
 {{- printf "http://%s-victoria-metrics-single-server.%s.svc:8428/api/v1/write" .Release.Name .Release.Namespace -}}
 {{- else -}}
 {{- "http://127.0.0.1:8428/api/v1/write" -}}
+{{- end -}}
+{{- end -}}
+
+{{/* Local VM query base (no /api/v1/write): explicit value, else the write endpoint
+     with its remote-write path trimmed, else the bundled subchart's service. */}}
+{{- define "leansignal-agent.localVMQueryEndpoint" -}}
+{{- if .Values.localVM.queryEndpoint -}}
+{{- .Values.localVM.queryEndpoint -}}
+{{- else if .Values.localVM.writeEndpoint -}}
+{{- trimSuffix "/api/v1/write" .Values.localVM.writeEndpoint -}}
+{{- else if (index .Values "victoria-metrics-single" "enabled") -}}
+{{- printf "http://%s-victoria-metrics-single-server.%s.svc:8428" .Release.Name .Release.Namespace -}}
+{{- else -}}
+{{- "http://127.0.0.1:8428" -}}
 {{- end -}}
 {{- end -}}

@@ -40,9 +40,9 @@ spec:
                 fieldRef:
                   fieldPath: spec.nodeName
             - name: LEANSIGNAL_ENDPOINT
-              value: {{ .Values.leansignal.endpoint | quote }}
+              value: {{ include "leansignal-agent.controlEndpoint" . | quote }}
             - name: LEANSIGNAL_DATAPLANE_ENDPOINT
-              value: {{ .Values.dataplane.endpoint | quote }}
+              value: {{ include "leansignal-agent.dataplaneEndpoint" . | quote }}
             - name: LEANSIGNAL_AGENT_KEY
               valueFrom:
                 secretKeyRef:

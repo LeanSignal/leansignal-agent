@@ -5,15 +5,16 @@ locally, and forwards the **demanded** subset to the central dataplane.
 
 ## What you provide at install time
 
-Two things are always required (the installer prompts for them if you don't pass
-flags):
+Two things are required (the installer prompts for them if you don't pass flags):
 
-1. **LeanSignal API URL** — the gRPC control-plane target (host:port)
-   (`api.leansignal.com:443`).
-2. **Agent key / secret token** — authenticates this agent to the API.
+1. **Tenant name** — the gRPC control host (`<tenant>-grpc.<domain>`) and the
+   ingest host (`<tenant>-ingest.<domain>`) are derived from it (domain defaults
+   to `eu11.leansignal.io`).
+2. **Agent key / secret token** — authenticates this agent (as gRPC metadata on
+   the control channel and as the bearer token on the dataplane).
 
-Plus the **central dataplane URL** (Prometheus remote-write) for the demanded
-subset. See the per-platform install guides for the exact flags.
+Advanced: override the derived hosts with the endpoint / dataplane-endpoint flags
+(or `--domain`). See the per-platform install guides for the exact flags.
 
 ## Sending your own metrics
 
@@ -41,6 +42,15 @@ curl -s 'http://localhost:8428/api/v1/query?query=up' | jq .
 ```
 
 Point Grafana (Prometheus datasource) at `http://<host>:8428` for dashboards.
+
+### From the LeanSignal UI (query tunnel)
+
+You don't need to expose the local store to use it from LeanSignal. When you edit
+a dashboard, the UI's **edit-mode** queries are tunneled down the agent's gRPC
+control stream, run against the local store, and returned — so you get
+full-fidelity data in the UI while the store stays private. Only read-only query
+paths are allowed; the agent must be connected (if it's offline the UI returns a
+`503` for edit-mode). View-mode dashboards read the central dataplane instead.
 
 ## How "demand" works
 
@@ -72,6 +82,8 @@ while the local store keeps full fidelity.
 | Nothing in the local store | check the agent is running and the local VM is up on `:8428` |
 | `connection refused` to the API | wrong `endpoint` / firewall / TLS — confirm the host:port endpoint |
 | `401`/auth errors on connect | wrong or expired agent key |
+| UI edit-mode returns `503` / no data | agent not connected, or `local_vm_query_url` points at the wrong local VM |
+| UI edit-mode query returns `403` | the path isn't on the read-only allow-list (only VM query APIs are permitted) |
 
 Increase log detail with `--set logLevel=debug` (Helm) or `telemetry.logs.level:
 debug` in the config file.

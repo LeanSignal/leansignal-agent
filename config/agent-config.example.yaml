@@ -37,6 +37,10 @@ extensions:
     insecure: false        # true only for local h2c (no TLS)
     reconnect_interval: 5s
     ping_interval: 30s
+    # lean-api proxies UI edit-mode queries here; the agent runs them (read-only,
+    # allow-listed) against the local VM. Base URL (no /api/v1/write) of the same
+    # local VM written to below.
+    local_vm_query_url: "http://127.0.0.1:8428"
 
 receivers:
   # Accept OTLP from local applications / SDKs.
