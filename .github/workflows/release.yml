@@ -63,7 +63,10 @@ jobs:
         uses: goreleaser/goreleaser-action@v7
         with:
           version: "~> v2"
-          args: release --clean
+          # -p 1: build one target at a time. Each full-contrib binary (~487 MB)
+          # link is multi-GB of RAM; the default parallel build OOM-kills the 7 GB
+          # hosted runner. Serializing keeps peak memory under the limit.
+          args: release --clean -p 1
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
