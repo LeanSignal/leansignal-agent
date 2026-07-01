@@ -46,7 +46,7 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Install OCB
-        run: go install go.opentelemetry.io/collector/cmd/builder@v0.141.0
+        run: go install go.opentelemetry.io/collector/cmd/builder@v0.155.0
 
       - name: Stamp agent version from tag
         run: |

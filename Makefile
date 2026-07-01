@@ -2,7 +2,7 @@
 # Release builds are driven by GitHub Actions + goreleaser; these targets are
 # for local development and CI checks.
 
-OCB_VERSION    ?= 0.141.0
+OCB_VERSION    ?= 0.155.0
 BINARY         ?= leansignal-agent
 BUILD_DIR      ?= _build
 GOBIN          ?= $(shell go env GOPATH)/bin
@@ -55,7 +55,7 @@ vet: ## go vet
 	go vet ./...
 
 # golangci-lint pinned to the CI version so local == CI (see .github/workflows/ci.yml).
-GOLANGCI_VERSION ?= 1.64.8
+GOLANGCI_VERSION ?= 2.12.2
 GOLANGCI         := $(GOBIN)/golangci-lint
 
 .PHONY: golangci-install
