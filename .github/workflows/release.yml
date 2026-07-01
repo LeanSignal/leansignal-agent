@@ -47,7 +47,15 @@ jobs:
           grep -m1 '^  version:' manifest.yaml
 
       - name: Generate distribution sources
-        run: "$(go env GOPATH)/bin/builder --config manifest.yaml --skip-compilation"
+        run: |
+          "$(go env GOPATH)/bin/builder" --config manifest.yaml --skip-compilation
+          # The stamp step above modified the tracked manifest.yaml; that version is
+          # now baked into the gitignored _build/, so restore the manifest to leave a
+          # clean working tree. goreleaser refuses to release from a dirty tree, and
+          # for any tag whose version differs from the committed manifest (e.g. an rc)
+          # the stamp is a real change — so this restore is required, not cosmetic.
+          git checkout -- manifest.yaml
+          git status --porcelain
 
       - name: Run goreleaser
         uses: goreleaser/goreleaser-action@v7
