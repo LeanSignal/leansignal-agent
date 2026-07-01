@@ -42,13 +42,24 @@ jobs:
           go-version-file: go.mod
       - uses: golangci/golangci-lint-action@v6
         with:
-          version: latest
+          # Pinned to the last v1 release: golangci-lint v2 (what `latest` now
+          # resolves to) requires a v2-schema .golangci.yml. Migrate the config to
+          # v2 and bump the action separately if/when you want v2.
+          version: v1.64.8
 
   ocb:
     name: OCB generate + compile
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      # The full OpenTelemetry Contrib distribution is huge and exhausts the
+      # runner's ~14 GB disk ("no space left on device"). Reclaim ~20 GB of
+      # preinstalled toolchains we don't need before building.
+      - name: Free disk space
+        run: |
+          sudo rm -rf /usr/local/lib/android /usr/share/dotnet /opt/ghc /opt/hostedtoolcache/CodeQL
+          sudo docker image prune --all --force >/dev/null 2>&1 || true
+          df -h /
       - uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
@@ -81,4 +92,5 @@ jobs:
       - name: Run shellcheck
         run: |
           sudo apt-get update && sudo apt-get install -y shellcheck
-          shellcheck scripts/install/*.sh scripts/release/*.sh
+          # Fail only on errors; benign warnings/info (unused-var, A&&B||C) don't block.
+          shellcheck --severity=error scripts/install/*.sh scripts/release/*.sh

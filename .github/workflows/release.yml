@@ -18,6 +18,15 @@ jobs:
         with:
           fetch-depth: 0   # goreleaser needs full history for the changelog
 
+      # goreleaser cross-compiles the full Contrib distribution for every platform
+      # plus builds images — reclaim ~20 GB of unused toolchains so the runner's
+      # disk doesn't fill up ("no space left on device").
+      - name: Free disk space
+        run: |
+          sudo rm -rf /usr/local/lib/android /usr/share/dotnet /opt/ghc /opt/hostedtoolcache/CodeQL
+          sudo docker image prune --all --force >/dev/null 2>&1 || true
+          df -h /
+
       - uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
