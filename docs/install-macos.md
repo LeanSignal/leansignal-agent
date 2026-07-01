@@ -8,14 +8,25 @@ daemons. Requires root (the script uses `sudo`). Apple silicon (arm64) and Intel
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/LeanSignal/leansignal-agent/main/scripts/install/install.sh \
-  | sudo bash -s -- \
-    --agent-key YOUR_KEY \
-    --endpoint api.leansignal.com:443 \
-    --dataplane-endpoint https://dataplane.example.com/api/v1/write
+  | sudo bash -s -- --agent-key YOUR_KEY --tenant YOUR_TENANT
 ```
 
 The same script handles Linux and macOS; it detects the platform automatically.
 See [install-linux.md](install-linux.md) for the full flag list.
+
+## It's already collecting
+
+The installer creates and starts the launchd daemons, so the agent is running
+now. **Your Mac's host metrics — CPU, memory, disk, filesystem, network — are
+collected automatically**; nothing else to configure. Verify:
+
+```bash
+curl -sf http://127.0.0.1:13133/ && echo " agent healthy"          # health check
+curl -s http://127.0.0.1:8428/api/v1/label/__name__/values         # metric names in the local store
+```
+
+To send your own application metrics, point any OpenTelemetry SDK at the agent's
+OTLP endpoint (`http://127.0.0.1:4318` for HTTP, `:4317` for gRPC).
 
 ## What it installs
 

@@ -58,13 +58,17 @@ See [docs/architecture.md](docs/architecture.md) for the full design.
 
 ### Kubernetes (Helm)
 
+You only need your **agent key** and your **tenant** — the gRPC control host
+(`<tenant>-grpc.<domain>`) and the ingest host (`<tenant>-ingest.<domain>`) are
+derived (domain defaults to `eu11.leansignal.io`; override with
+`--set leansignal.domain=…`).
+
 ```bash
 helm upgrade --install leansignal-agent \
   oci://ghcr.io/leansignal/charts/leansignal-agent \
   --namespace leansignal --create-namespace \
-  --set leansignal.endpoint="api.leansignal.com:443" \
+  --set leansignal.tenant="YOUR_TENANT" \
   --set leansignal.agentKey.value="YOUR_KEY" \
-  --set dataplane.endpoint="https://dataplane.example.com/api/v1/write" \
   --set victoria-metrics-single.enabled=true
 ```
 
@@ -74,10 +78,7 @@ See [docs/install-kubernetes.md](docs/install-kubernetes.md).
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/LeanSignal/leansignal-agent/main/scripts/install/install.sh \
-  | sudo bash -s -- \
-    --agent-key YOUR_KEY \
-    --endpoint api.leansignal.com:443 \
-    --dataplane-endpoint https://dataplane.example.com/api/v1/write
+  | sudo bash -s -- --agent-key YOUR_KEY --tenant YOUR_TENANT
 ```
 
 Installs the agent + local VictoriaMetrics and registers them as services
@@ -87,9 +88,7 @@ Installs the agent + local VictoriaMetrics and registers them as services
 ### Windows (PowerShell, as Administrator)
 
 ```powershell
-.\install.ps1 -AgentKey YOUR_KEY `
-  -Endpoint api.leansignal.com:443 `
-  -DataplaneEndpoint https://dataplane.example.com/api/v1/write
+.\install.ps1 -AgentKey YOUR_KEY -Tenant YOUR_TENANT
 ```
 
 See [docs/install-windows.md](docs/install-windows.md).
@@ -126,7 +125,7 @@ LeanSignal:
 
 ```bash
 make local-run                                  # vs local lean-api (:9090, h2c) + local VM (:8482)
-make cloud-run TENANT=mb1 CLOUD_AGENT_KEY=…     # vs a cloud tenant over TLS (…-grpc.<domain>:443)
+make cloud-run TENANT=mb1 AGENT_KEY=…           # vs a cloud tenant over TLS (…-grpc.<domain>:443)
 ```
 
 `make build` / `make snapshot` produce the release artifacts (all platforms). The

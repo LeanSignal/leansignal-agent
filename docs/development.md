@@ -90,7 +90,7 @@ lean-api (gRPC `:9090`, h2c). Defaults (override any on the command line):
 | Make var | Default | Meaning |
 |----------|---------|---------|
 | `LOCAL_ENDPOINT` | `localhost:9090` | lean-api gRPC target (h2c, no TLS) |
-| `LOCAL_AGENT_KEY` | `deadbeef-…` | agent key (seed it in lean-api's dev DB via `make local-seed`) |
+| `AGENT_KEY` | dev key `deadbeef-…` | agent key; empty falls back to the dev key (seed it via `make local-seed`) |
 | `LOCAL_VM` | `http://localhost:8482` | local vm-ag **base URL** (write + query) |
 | `LOCAL_DATAPLANE` | `http://localhost:8483` | dataplane VM **base URL** (demanded subset) |
 
@@ -125,17 +125,17 @@ Point the same local agent at a deployed tenant over **TLS (443)**. You give it
 the tenant name and its agent key; the gRPC and ingest hosts are derived:
 
 ```bash
-make cloud-run TENANT=mb1 CLOUD_AGENT_KEY=<the tenant's agent key>
+make cloud-run TENANT=mb1 AGENT_KEY=<the tenant's agent key>
 ```
 
 | Make var | Default | Meaning |
 |----------|---------|---------|
+| `AGENT_KEY` | — (**required**) | tenant agent key (from its `agents` table) |
 | `TENANT` | `mb1` | tenant name; derives the hosts below |
 | `CLOUD_DOMAIN` | `eu11.leansignal.io` | cluster domain |
 | `CLOUD_ENDPOINT` | `$(TENANT)-grpc.$(CLOUD_DOMAIN):443` | gRPC control (TLS) |
 | `CLOUD_DATAPLANE` | `https://$(TENANT)-ingest.$(CLOUD_DOMAIN)` | vmauth ingest base |
-| `CLOUD_VM` | `http://localhost:8482` | local VM base — unchanged; the agent's own store |
-| `CLOUD_AGENT_KEY` | — (**required**) | tenant agent key (from its `agents` table) |
+| `LOCAL_VM` | `http://localhost:8482` | local VM base — the agent's own store (same as local-run) |
 
 It uses `config/agent-config.cloud.yaml` (TLS on, `insecure: false`). The local VM
 stays local — the agent always keeps full fidelity next to itself; the cloud reads

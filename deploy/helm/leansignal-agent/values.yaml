@@ -13,7 +13,13 @@ replicaCount: 1
 
 # Control-plane connection to LeanSignal (the edge-controller extension).
 leansignal:
-  # gRPC target (host:port, no scheme), e.g. api.leansignal.com:443
+  # Tenant name. When set, the control host and the ingest host are derived as
+  # <tenant>-grpc.<domain>:443 and https://<tenant>-ingest.<domain>/api/v1/write.
+  # In the common case this (plus the agent key) is all you set.
+  tenant: ""
+  domain: "eu11.leansignal.io"
+  # Advanced: override the derived gRPC control host (host:port, no scheme).
+  # Leave empty to derive from tenant/domain.
   endpoint: ""
   # Disable TLS on the control channel (h2c) - only for in-cluster/testing.
   insecure: false
@@ -27,6 +33,8 @@ leansignal:
 # Central, long-retention store that receives only demanded metrics
 # (Prometheus remote-write URL).
 dataplane:
+  # Advanced: override the derived remote-write URL. Leave empty to derive from
+  # tenant/domain: https://<tenant>-ingest.<domain>/api/v1/write
   endpoint: ""
 
 # Local, full-fidelity VictoriaMetrics that receives everything.

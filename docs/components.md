@@ -74,7 +74,7 @@ traversal is cleaned before matching.
 
 ```yaml
 leansignal_edge_controller:
-  endpoint: "api.leansignal.com:443"     # …-grpc.<domain>:443 in prod
+  endpoint: "mb1-grpc.eu11.leansignal.io:443"   # <tenant>-grpc.<domain>:443 in prod
   agent_key: "${env:LEANSIGNAL_AGENT_KEY}"
   insecure: false                        # true = plaintext h2c (local dev only)
   local_vm_query_url: "http://127.0.0.1:8428"   # base URL of the local VM query API

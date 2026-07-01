@@ -5,15 +5,16 @@ locally, and forwards the **demanded** subset to the central dataplane.
 
 ## What you provide at install time
 
-Two things are always required (the installer prompts for them if you don't pass
-flags):
+Two things are required (the installer prompts for them if you don't pass flags):
 
-1. **LeanSignal API URL** — the gRPC control-plane target (host:port)
-   (`api.leansignal.com:443`).
-2. **Agent key / secret token** — authenticates this agent to the API.
+1. **Tenant name** — the gRPC control host (`<tenant>-grpc.<domain>`) and the
+   ingest host (`<tenant>-ingest.<domain>`) are derived from it (domain defaults
+   to `eu11.leansignal.io`).
+2. **Agent key / secret token** — authenticates this agent (as gRPC metadata on
+   the control channel and as the bearer token on the dataplane).
 
-Plus the **central dataplane URL** (Prometheus remote-write) for the demanded
-subset. See the per-platform install guides for the exact flags.
+Advanced: override the derived hosts with the endpoint / dataplane-endpoint flags
+(or `--domain`). See the per-platform install guides for the exact flags.
 
 ## Sending your own metrics
 

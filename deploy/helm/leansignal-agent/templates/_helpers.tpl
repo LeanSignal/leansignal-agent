@@ -57,6 +57,24 @@ app.kubernetes.io/instance: {{ .Release.Name }}
 {{- join ", " $r -}}
 {{- end -}}
 
+{{/* Control-plane gRPC endpoint: explicit value, else derived <tenant>-grpc.<domain>:443 */}}
+{{- define "leansignal-agent.controlEndpoint" -}}
+{{- if .Values.leansignal.endpoint -}}
+{{- .Values.leansignal.endpoint -}}
+{{- else if .Values.leansignal.tenant -}}
+{{- printf "%s-grpc.%s:443" .Values.leansignal.tenant .Values.leansignal.domain -}}
+{{- end -}}
+{{- end -}}
+
+{{/* Dataplane remote-write URL: explicit value, else derived <tenant>-ingest.<domain> */}}
+{{- define "leansignal-agent.dataplaneEndpoint" -}}
+{{- if .Values.dataplane.endpoint -}}
+{{- .Values.dataplane.endpoint -}}
+{{- else if .Values.leansignal.tenant -}}
+{{- printf "https://%s-ingest.%s/api/v1/write" .Values.leansignal.tenant .Values.leansignal.domain -}}
+{{- end -}}
+{{- end -}}
+
 {{/* Local VM write endpoint: explicit value, else the bundled subchart's service, else localhost */}}
 {{- define "leansignal-agent.localVMEndpoint" -}}
 {{- if .Values.localVM.writeEndpoint -}}

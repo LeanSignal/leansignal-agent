@@ -4,13 +4,16 @@
   VictoriaMetrics and registers them as Windows services.
 
 .EXAMPLE
-  irm https://raw.githubusercontent.com/LeanSignal/leansignal-agent/main/scripts/install/install.ps1 | iex
-  # or, with arguments (run from an elevated PowerShell):
-  .\install.ps1 -AgentKey KEY -Endpoint wss://api.leansignal.com/api/v1/agents/ws/ -DataplaneEndpoint https://dataplane.example.com/api/v1/write
+  # You only need your agent key + tenant; the gRPC + ingest hosts are derived.
+  # Run from an elevated PowerShell:
+  .\install.ps1 -AgentKey KEY -Tenant TENANT
+  # Advanced: override with -Endpoint / -DataplaneEndpoint, or -Domain.
 #>
 [CmdletBinding()]
 param(
   [string]$AgentKey,
+  [string]$Tenant,
+  [string]$Domain = "eu11.leansignal.io",
   [string]$Endpoint,
   [string]$DataplaneEndpoint,
   [string]$Version = "latest",
@@ -29,18 +32,23 @@ if (-not $principal.IsInRole([Security.Principal.WindowsBuiltinRole]::Administra
   Die "must run from an elevated (Administrator) PowerShell"
 }
 
-# Prompt for the required connection details when not supplied as parameters.
-if (-not $Endpoint)          { $Endpoint = Read-Host "LeanSignal API WebSocket URL (e.g. wss://api.leansignal.com/api/v1/agents/ws/)" }
-if (-not $DataplaneEndpoint) { $DataplaneEndpoint = Read-Host "Central dataplane remote-write URL (e.g. https://dataplane.example.com/api/v1/write)" }
+# Prompt for what's needed when not supplied as parameters.
+if ((-not $Endpoint) -and (-not $Tenant)) { $Tenant = Read-Host "Tenant name (control host becomes <tenant>-grpc.$Domain)" }
 if (-not $AgentKey) {
   $sec = Read-Host "Agent key / secret token" -AsSecureString
   $AgentKey = [Runtime.InteropServices.Marshal]::PtrToStringAuto(
     [Runtime.InteropServices.Marshal]::SecureStringToBSTR($sec))
 }
 
-if (-not $Endpoint)          { Die "LeanSignal API URL is required (-Endpoint)" }
-if (-not $AgentKey)          { Die "agent key is required (-AgentKey)" }
-if (-not $DataplaneEndpoint) { Die "dataplane URL is required (-DataplaneEndpoint)" }
+if (-not $AgentKey) { Die "agent key is required (-AgentKey)" }
+# The control + ingest hosts are derived from the tenant unless overridden.
+if (((-not $Endpoint) -or (-not $DataplaneEndpoint)) -and (-not $Tenant)) {
+  Die "tenant is required (-Tenant), or pass -Endpoint and -DataplaneEndpoint explicitly"
+}
+if (-not $Endpoint)          { $Endpoint = "${Tenant}-grpc.${Domain}:443" }
+if (-not $DataplaneEndpoint) { $DataplaneEndpoint = "https://${Tenant}-ingest.${Domain}/api/v1/write" }
+Info "control endpoint:  $Endpoint"
+Info "dataplane endpoint: $DataplaneEndpoint"
 
 $arch = if ([Environment]::Is64BitOperatingSystem) { "amd64" } else { Die "unsupported architecture" }
 

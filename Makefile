@@ -10,27 +10,28 @@ GOBIN          ?= $(shell go env GOPATH)/bin
 # Pinned VictoriaMetrics version bundled with the agent (single source of truth).
 VM_VERSION     := $(shell cat VM_VERSION 2>/dev/null)
 
-# `make local-run` settings - override on the command line if your local setup differs.
+# Run settings - override on the command line as needed.
 # (Keep these free of trailing inline comments: make would fold the spaces into the value.)
-# LOCAL_ENDPOINT  = local lean-api gRPC target (h2c)
-# LOCAL_VM        = vm-ag base URL (the config builds write + the agent builds query)
-# LOCAL_DATAPLANE = dataplane base URL (demanded subset)
-LOCAL_ENDPOINT  ?= localhost:9090
-LOCAL_AGENT_KEY ?= deadbeef-dead-beef-dead-beefdeadbeef
+#
+# AGENT_KEY is used by BOTH local-run and cloud-run. local-run falls back to the
+# dev key when AGENT_KEY is empty; cloud-run requires it. LOCAL_VM is the agent's
+# own local store (used in both modes).
+AGENT_KEY       ?=
+DEV_AGENT_KEY   := deadbeef-dead-beef-dead-beefdeadbeef
 LOCAL_VM        ?= http://localhost:8482
 LOCAL_DATAPLANE ?= http://localhost:8483
 
-# `make cloud-run` settings - point the local agent at a cloud tenant over TLS(443).
-# Usually you only set TENANT (+ CLOUD_AGENT_KEY); the gRPC control host and the
-# vmauth ingest host are derived as <tenant>-grpc.<domain> and <tenant>-ingest.<domain>.
-# (The <tenant>-api host is REST/UI only - the agent never connects to it.)
-# Override CLOUD_ENDPOINT / CLOUD_DATAPLANE directly for a non-standard host.
-TENANT           ?= mb1
-CLOUD_DOMAIN     ?= eu11.leansignal.io
-CLOUD_ENDPOINT   ?= $(TENANT)-grpc.$(CLOUD_DOMAIN):443
-CLOUD_AGENT_KEY  ?=
-CLOUD_VM         ?= http://localhost:8482
-CLOUD_DATAPLANE  ?= https://$(TENANT)-ingest.$(CLOUD_DOMAIN)
+# local-run: against a local lean-api (h2c).
+LOCAL_ENDPOINT  ?= localhost:9090
+
+# cloud-run: against a deployed tenant over TLS(443). Set AGENT_KEY + TENANT; the
+# gRPC control host and vmauth ingest host are derived as <tenant>-grpc.<domain>
+# and <tenant>-ingest.<domain>. Override CLOUD_ENDPOINT / CLOUD_DATAPLANE for a
+# non-standard host. (The <tenant>-api host is REST/UI only - not used here.)
+TENANT          ?= mb1
+CLOUD_DOMAIN    ?= eu11.leansignal.io
+CLOUD_ENDPOINT  ?= $(TENANT)-grpc.$(CLOUD_DOMAIN):443
+CLOUD_DATAPLANE ?= https://$(TENANT)-ingest.$(CLOUD_DOMAIN)
 
 .DEFAULT_GOAL := help
 
@@ -85,19 +86,19 @@ local-run: ## Run the pre-built agent vs local lean-api (:9090) + VM (:8482). Ru
 	@[ -x "$(BUILD_DIR)/$(BINARY)" ] || { echo "$(BUILD_DIR)/$(BINARY) not found — run 'make local-build' first"; exit 1; }
 	@echo "endpoint=$(LOCAL_ENDPOINT)  vm-ag=$(LOCAL_VM)"
 	LEANSIGNAL_ENDPOINT="$(LOCAL_ENDPOINT)" \
-	LEANSIGNAL_AGENT_KEY="$(LOCAL_AGENT_KEY)" \
+	LEANSIGNAL_AGENT_KEY="$(or $(AGENT_KEY),$(DEV_AGENT_KEY))" \
 	LEANSIGNAL_LOCAL_VM="$(LOCAL_VM)" \
 	LEANSIGNAL_DATAPLANE_ENDPOINT="$(LOCAL_DATAPLANE)" \
 	$(BUILD_DIR)/$(BINARY) --config config/agent-config.local.yaml
 
 .PHONY: cloud-run
-cloud-run: ## Run the pre-built agent vs a CLOUD tenant over TLS(443). Requires CLOUD_AGENT_KEY. Run `make local-build` first.
+cloud-run: ## Run the pre-built agent vs a CLOUD tenant over TLS(443). Requires AGENT_KEY (+ TENANT). Run `make local-build` first.
 	@[ -x "$(BUILD_DIR)/$(BINARY)" ] || { echo "$(BUILD_DIR)/$(BINARY) not found — run 'make local-build' first"; exit 1; }
-	@[ -n "$(CLOUD_AGENT_KEY)" ] || { echo "set CLOUD_AGENT_KEY=<tenant agent key> (see the tenant's agents table)"; exit 1; }
-	@echo "tenant=$(TENANT)  grpc=$(CLOUD_ENDPOINT)  ingest=$(CLOUD_DATAPLANE)  (api=$(TENANT)-api.$(CLOUD_DOMAIN), not used)  local-vm=$(CLOUD_VM)"
+	@[ -n "$(AGENT_KEY)" ] || { echo "set AGENT_KEY=<tenant agent key> (see the tenant's agents table)"; exit 1; }
+	@echo "tenant=$(TENANT)  grpc=$(CLOUD_ENDPOINT)  ingest=$(CLOUD_DATAPLANE)  local-vm=$(LOCAL_VM)"
 	LEANSIGNAL_ENDPOINT="$(CLOUD_ENDPOINT)" \
-	LEANSIGNAL_AGENT_KEY="$(CLOUD_AGENT_KEY)" \
-	LEANSIGNAL_LOCAL_VM="$(CLOUD_VM)" \
+	LEANSIGNAL_AGENT_KEY="$(AGENT_KEY)" \
+	LEANSIGNAL_LOCAL_VM="$(LOCAL_VM)" \
 	LEANSIGNAL_DATAPLANE_ENDPOINT="$(CLOUD_DATAPLANE)" \
 	$(BUILD_DIR)/$(BINARY) --config config/agent-config.cloud.yaml
 

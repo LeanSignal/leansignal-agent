@@ -5,15 +5,21 @@ co-located VictoriaMetrics via the upstream `victoria-metrics-single` subchart.
 
 ## Install
 
+You only need your tenant + agent key; the gRPC control host and the ingest host
+are derived (`<tenant>-grpc.<domain>` / `<tenant>-ingest.<domain>`, domain
+defaults to `eu11.leansignal.io` — override with `--set leansignal.domain=…`).
+
 ```bash
 helm upgrade --install leansignal-agent \
   oci://ghcr.io/leansignal/charts/leansignal-agent \
   --namespace leansignal --create-namespace \
-  --set leansignal.endpoint="api.leansignal.com:443" \
+  --set leansignal.tenant="YOUR_TENANT" \
   --set leansignal.agentKey.value="YOUR_KEY" \
-  --set dataplane.endpoint="https://dataplane.example.com/api/v1/write" \
   --set victoria-metrics-single.enabled=true
 ```
+
+To override the derived hosts, set `leansignal.endpoint` / `dataplane.endpoint`
+explicitly instead of (or alongside) `leansignal.tenant`.
 
 Or with a values file (see [`values-example.yaml`](../deploy/helm/leansignal-agent/values-example.yaml)):
 
@@ -29,7 +35,7 @@ There is also a convenience wrapper: [`scripts/install/k8s-install.sh`](../scrip
 
 ```yaml
 leansignal:
-  endpoint: api.leansignal.com:443
+  tenant: mb1
   agentKey:
     existingSecret: my-agent-secret
     existingSecretKey: agent-key
@@ -59,12 +65,23 @@ ClusterRole/Binding for the `k8s_cluster` + `kubeletstats` receivers, a Secret
 (unless you supply one), an OTLP Service, and — when enabled — the
 VictoriaMetrics StatefulSet/Service.
 
-## Verify
+## It's already collecting
+
+Once the pod is running, **Kubernetes cluster + node metrics (and OTLP) are
+collected automatically** and written to the co-located VictoriaMetrics — nothing
+else to configure. Verify:
 
 ```bash
 kubectl -n leansignal rollout status deploy/leansignal-agent
-kubectl -n leansignal logs deploy/leansignal-agent -f
+kubectl -n leansignal logs deploy/leansignal-agent -f     # connection + index sync counts
+
+# query the local store via a port-forward
+kubectl -n leansignal port-forward svc/leansignal-agent-victoria-metrics-single-server 8428:8428 &
+curl -s http://127.0.0.1:8428/api/v1/label/__name__/values
 ```
+
+Send your own app metrics to the in-cluster OTLP service
+`leansignal-agent.leansignal.svc:4317` (gRPC) / `:4318` (HTTP).
 
 ## Uninstall
 
