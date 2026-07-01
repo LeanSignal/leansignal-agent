@@ -52,10 +52,31 @@ registry `Environment` value.
 
 ## Manage
 
+Two **independent** Windows services — the collector (`LeanSignalAgent`) and the
+local store (`LeanSignalVictoriaMetrics`). The agent depends on the VM service, so
+stopping VM also stops the agent; the agent can be restarted on its own.
+
 ```powershell
+# status of both
 Get-Service LeanSignalAgent, LeanSignalVictoriaMetrics
+
+# AGENT — start / stop / restart (VictoriaMetrics keeps running)
 Restart-Service LeanSignalAgent
+Stop-Service    LeanSignalAgent
+Start-Service   LeanSignalAgent
+
+# VICTORIA-METRICS — restart (also cycles the dependent agent)
+Restart-Service LeanSignalVictoriaMetrics -Force
 ```
+
+Local store: `http://127.0.0.1:8428` · agent health: `http://127.0.0.1:13133`.
+
+### Local VM retention
+
+The local store keeps a **fixed 1 day (24h)** of data by design — it's a short edge
+buffer (full fidelity is kept locally; only the demanded subset is forwarded to the
+central dataplane). It's set to `--retentionPeriod=1d` on the
+`LeanSignalVictoriaMetrics` service and is not a configurable option.
 
 ## Upgrading
 

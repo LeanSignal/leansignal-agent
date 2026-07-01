@@ -55,13 +55,37 @@ OTLP endpoint (`http://127.0.0.1:4318` for HTTP, `:4317` for gRPC).
 
 ## Manage
 
+Two **independent** systemd units — the collector (`leansignal-agent`) and the
+local store (`leansignal-victoria-metrics`). Manage each separately; restarting one
+does not touch the other.
+
 ```bash
-systemctl status leansignal-agent
+# status of both
+systemctl status leansignal-agent leansignal-victoria-metrics
+systemctl is-active leansignal-agent leansignal-victoria-metrics
+
+# AGENT — start / stop / restart (VictoriaMetrics keeps running)
+sudo systemctl restart leansignal-agent
+sudo systemctl stop    leansignal-agent
+sudo systemctl start   leansignal-agent
+
+# VICTORIA-METRICS — start / stop / restart
+sudo systemctl restart leansignal-victoria-metrics
+
+# live logs (per service)
 journalctl -u leansignal-agent -f
-systemctl restart leansignal-agent
+journalctl -u leansignal-victoria-metrics -f
 ```
 
 Local store: `http://127.0.0.1:8428` · agent health: `http://127.0.0.1:13133`.
+
+### Local VM retention
+
+The local store keeps a **fixed 1 day (24h)** of data by design — it's a short edge
+buffer (full fidelity is kept locally; only the demanded subset is forwarded to the
+central dataplane). It's set to `--retentionPeriod=1d` in
+`/etc/systemd/system/leansignal-victoria-metrics.service` and is not a configurable
+option.
 
 ## Upgrading
 

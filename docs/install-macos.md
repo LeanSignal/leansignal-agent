@@ -40,12 +40,40 @@ OTLP endpoint (`http://127.0.0.1:4318` for HTTP, `:4317` for gRPC).
 
 ## Manage
 
+Two **independent** LaunchDaemons — the collector (`com.leansignal.agent`) and the
+local store (`com.leansignal.victoria-metrics`). Manage each separately; stopping
+one does not affect the other.
+
 ```bash
+# STATUS — both (a numeric PID in the first column = running)
 sudo launchctl list | grep leansignal
+
+# RESTART either one (one-liner; the other is unaffected)
+sudo launchctl kickstart -k system/com.leansignal.agent
+sudo launchctl kickstart -k system/com.leansignal.victoria-metrics
+
+# STOP / START (unload = stop, load = start)
 sudo launchctl unload /Library/LaunchDaemons/com.leansignal.agent.plist
-sudo launchctl load -w /Library/LaunchDaemons/com.leansignal.agent.plist
+sudo launchctl load   -w /Library/LaunchDaemons/com.leansignal.agent.plist
+# …same with com.leansignal.victoria-metrics.plist for the store
+
+# LOGS — one file per service
 tail -f /usr/local/var/log/leansignal-agent/agent.log
+tail -f /usr/local/var/log/leansignal-agent/victoria-metrics.log
 ```
+
+> macOS system daemons live in the `system/` domain and need `sudo`; the labels are
+> `com.leansignal.agent` and `com.leansignal.victoria-metrics`.
+
+Local store: `http://127.0.0.1:8428` · agent health: `http://127.0.0.1:13133`.
+
+### Local VM retention
+
+The local store keeps a **fixed 1 day (24h)** of data by design — it's a short edge
+buffer (full fidelity is kept locally; only the demanded subset is forwarded to the
+central dataplane). It's set to `--retentionPeriod=1d` in
+`/Library/LaunchDaemons/com.leansignal.victoria-metrics.plist` and is not a
+configurable option.
 
 > Note: macOS binaries from a release are not notarized; Gatekeeper may require
 > approval the first time. Bundles installed via the script run as root daemons.
