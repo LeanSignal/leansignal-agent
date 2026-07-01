@@ -84,7 +84,26 @@ jobs:
       - name: Upload bundles to the release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: gh release upload "${{ github.ref_name }}" bundles/* --clobber
+        run: |
+          set -euo pipefail
+          if command -v gh >/dev/null 2>&1; then
+            gh release upload "${{ github.ref_name }}" bundles/* --clobber
+          else
+            # Minimal self-hosted runner without gh: upload via the GitHub API.
+            echo "gh not found — uploading bundles via the GitHub API with curl"
+            up="$(curl -fsSL -H "Authorization: Bearer ${GH_TOKEN}" \
+              "https://api.github.com/repos/${GITHUB_REPOSITORY}/releases/tags/${GITHUB_REF_NAME}" \
+              | grep -m1 '"upload_url"' | sed -E 's/.*"upload_url": *"([^"{]+).*/\1/')"
+            for f in bundles/*; do
+              name="$(basename "$f")"
+              echo "  uploading ${name}"
+              curl -fsSL -X POST \
+                -H "Authorization: Bearer ${GH_TOKEN}" \
+                -H "Content-Type: application/octet-stream" \
+                --data-binary @"${f}" \
+                "${up}?name=${name}" >/dev/null
+            done
+          fi
 
   # 2) Build the image for each arch on its OWN native GitHub-hosted runner (which
   #    have Docker): amd64 on ubuntu-latest, arm64 on the free ubuntu-24.04-arm —
