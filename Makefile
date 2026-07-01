@@ -54,9 +54,29 @@ test: ## Run unit tests with the race detector
 vet: ## go vet
 	go vet ./...
 
+# golangci-lint pinned to the CI version so local == CI (see .github/workflows/ci.yml).
+GOLANGCI_VERSION ?= 1.64.8
+GOLANGCI         := $(GOBIN)/golangci-lint
+
+.PHONY: golangci-install
+golangci-install: ## Install golangci-lint pinned to the CI version (if missing/mismatched)
+	@$(GOLANGCI) version 2>/dev/null | grep -q "$(GOLANGCI_VERSION)" || { \
+	  echo "installing golangci-lint v$(GOLANGCI_VERSION)..."; \
+	  curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/HEAD/install.sh \
+	    | sh -s -- -b "$(GOBIN)" v$(GOLANGCI_VERSION); }
+
 .PHONY: lint
-lint: ## Run golangci-lint (if installed)
-	@command -v golangci-lint >/dev/null 2>&1 && golangci-lint run || echo "golangci-lint not installed; skipping"
+lint: golangci-install ## Run golangci-lint (same version + config as CI)
+	$(GOLANGCI) run
+
+.PHONY: lint-fix
+lint-fix: golangci-install ## Auto-fix gofmt/goimports and other fixable lint issues
+	$(GOLANGCI) run --fix
+
+.PHONY: install-hooks
+install-hooks: ## Enable the git pre-commit hook (runs 'make lint' on staged Go changes)
+	@git config core.hooksPath .githooks
+	@echo "installed: .githooks/pre-commit runs 'make lint' before each commit"
 
 .PHONY: license
 license: ## Add/refresh SPDX Apache-2.0 headers on first-party sources

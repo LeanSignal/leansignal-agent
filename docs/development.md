@@ -41,8 +41,10 @@ Trunk-based development on `main`:
 
 ```bash
 make install-tools          # ocb, addlicense, goreleaser (one-time)
+make install-hooks          # enable the pre-commit lint hook (one-time)
 make test                   # go test -race ./components/...
-make vet lint               # static checks
+make lint                   # golangci-lint, pinned to the CI version
+make lint-fix               # auto-fix gofmt/goimports + fixable issues
 make license                # refresh SPDX headers if you added files
 make generate               # OCB -> _build/ (source only)
 make build                  # compile the full distribution
@@ -52,6 +54,16 @@ make shellcheck
 ```
 
 Fast iteration on component code doesn't need OCB: `go test -race ./components/...`.
+
+### Pre-commit hook (lint locally, not in CI)
+
+`make install-hooks` sets `core.hooksPath=.githooks`, so [`.githooks/pre-commit`](../.githooks/pre-commit)
+runs **the same golangci-lint as CI** (pinned via `GOLANGCI_VERSION` in the
+Makefile, installed on first use) on staged Go changes before every commit — so
+lint failures are caught locally, not after a push. If it blocks a commit, run
+`make lint-fix` (auto-formats), re-stage, and commit again; use
+`git commit --no-verify` to skip in a pinch. `make lint` is the same check you can
+run anytime.
 
 ### Adding or changing a component
 
