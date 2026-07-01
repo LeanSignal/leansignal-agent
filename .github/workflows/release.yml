@@ -91,9 +91,12 @@ jobs:
           else
             # Minimal self-hosted runner without gh: upload via the GitHub API.
             echo "gh not found — uploading bundles via the GitHub API with curl"
-            up="$(curl -fsSL -H "Authorization: Bearer ${GH_TOKEN}" \
-              "https://api.github.com/repos/${GITHUB_REPOSITORY}/releases/tags/${GITHUB_REF_NAME}" \
-              | grep -m1 '"upload_url"' | sed -E 's/.*"upload_url": *"([^"{]+).*/\1/')"
+            # Capture the release JSON fully first. Piping curl straight into
+            # `grep -m1` closes the pipe early, so curl dies with error 23
+            # (write failure) under `set -o pipefail`. A here-string can't SIGPIPE.
+            rel_json="$(curl -fsSL -H "Authorization: Bearer ${GH_TOKEN}" \
+              "https://api.github.com/repos/${GITHUB_REPOSITORY}/releases/tags/${GITHUB_REF_NAME}")"
+            up="$(grep -m1 '"upload_url"' <<<"$rel_json" | sed -E 's/.*"upload_url": *"([^"{]+).*/\1/')"
             for f in bundles/*; do
               name="$(basename "$f")"
               echo "  uploading ${name}"
