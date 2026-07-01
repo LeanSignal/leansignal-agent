@@ -32,8 +32,9 @@ import (
 	"strings"
 	"time"
 
-	agentv1 "github.com/leansignal/leansignal-agent/proto/gen/leansignal/agent/v1"
 	"go.uber.org/zap"
+
+	agentv1 "github.com/leansignal/leansignal-agent/proto/gen/leansignal/agent/v1"
 )
 
 const (

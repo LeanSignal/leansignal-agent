@@ -7,9 +7,10 @@ import (
 	"context"
 	"testing"
 
-	metricsindex "github.com/leansignal/leansignal-agent/components/metricsindex"
 	"go.opentelemetry.io/collector/pdata/pmetric"
 	"go.uber.org/zap"
+
+	metricsindex "github.com/leansignal/leansignal-agent/components/metricsindex"
 )
 
 func TestNormalizePromMetricName(t *testing.T) {

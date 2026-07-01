@@ -22,9 +22,10 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/leansignal/leansignal-agent/components/metricsindex"
 	"github.com/zeebo/xxh3"
 	"go.uber.org/zap"
+
+	leansignalmetricsindex "github.com/leansignal/leansignal-agent/components/metricsindex"
 )
 
 // Type aliases for cleaner code

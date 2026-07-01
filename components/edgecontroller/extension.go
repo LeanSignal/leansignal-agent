@@ -23,8 +23,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/leansignal/leansignal-agent/components/metricsindex"
-	agentv1 "github.com/leansignal/leansignal-agent/proto/gen/leansignal/agent/v1"
 	"go.opentelemetry.io/collector/component"
 	"go.uber.org/zap"
 	"google.golang.org/grpc"
@@ -32,6 +30,9 @@ import (
 	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/keepalive"
 	"google.golang.org/grpc/metadata"
+
+	leansignalmetricsindex "github.com/leansignal/leansignal-agent/components/metricsindex"
+	agentv1 "github.com/leansignal/leansignal-agent/proto/gen/leansignal/agent/v1"
 )
 
 // agentVersion is reported to the backend in the Hello message.
@@ -57,9 +58,9 @@ type edgeControllerExtension struct {
 	rootCtx  context.Context // cancelled on Shutdown; parents query requests
 	wg       sync.WaitGroup
 
-	mu      sync.Mutex                          // guards stream lifecycle
-	stream  agentv1.AgentControl_ConnectClient  // nil when disconnected
-	writeMu sync.Mutex                          // serialises stream.Send (not concurrency-safe)
+	mu      sync.Mutex                         // guards stream lifecycle
+	stream  agentv1.AgentControl_ConnectClient // nil when disconnected
+	writeMu sync.Mutex                         // serialises stream.Send (not concurrency-safe)
 
 	corrMu  sync.Mutex
 	corrSeq uint64

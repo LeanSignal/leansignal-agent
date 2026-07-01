@@ -15,9 +15,10 @@ import (
 	"testing"
 	"time"
 
-	agentv1 "github.com/leansignal/leansignal-agent/proto/gen/leansignal/agent/v1"
 	"go.uber.org/zap"
 	"google.golang.org/grpc"
+
+	agentv1 "github.com/leansignal/leansignal-agent/proto/gen/leansignal/agent/v1"
 )
 
 // queryPushServer is an in-process AgentControl server that, after the agent's

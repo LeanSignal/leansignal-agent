@@ -19,9 +19,10 @@ package leansignalmetricstracker
 import (
 	"testing"
 
-	"github.com/leansignal/leansignal-agent/components/metricsindex"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zaptest"
+
+	leansignalmetricsindex "github.com/leansignal/leansignal-agent/components/metricsindex"
 )
 
 func TestNewCollectorTimeseries(t *testing.T) {

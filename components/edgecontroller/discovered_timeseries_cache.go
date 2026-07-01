@@ -20,8 +20,9 @@ package leansignaledgecontroller
 import (
 	"sync"
 
-	"github.com/leansignal/leansignal-agent/components/metricsindex"
 	"go.uber.org/zap"
+
+	leansignalmetricsindex "github.com/leansignal/leansignal-agent/components/metricsindex"
 )
 
 // Type aliases for cleaner code
