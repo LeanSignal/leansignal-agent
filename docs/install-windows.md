@@ -95,9 +95,23 @@ Set-ItemProperty -Path $k -Name Environment -Value @(
   "LEANSIGNAL_DATAPLANE_ENDPOINT=https://NEW_TENANT-ingest.eu11.leansignal.io/api/v1/write"
 )
 Restart-Service LeanSignalAgent
+Stop-Service    LeanSignalAgent
+Start-Service   LeanSignalAgent
+
+# VICTORIA-METRICS — restart (also cycles the dependent agent)
+Restart-Service LeanSignalVictoriaMetrics -Force
 ```
 Changing the **tenant** updates **three** values (the key **and** both `-grpc` /
 `-ingest` hosts, which embed the tenant name).
+
+Local store: `http://127.0.0.1:8428` · agent health: `http://127.0.0.1:13133`.
+
+### Local VM retention
+
+The local store keeps a **fixed 1 day (24h)** of data by design — it's a short edge
+buffer (full fidelity is kept locally; only the demanded subset is forwarded to the
+central dataplane). It's set to `--retentionPeriod=1d` on the
+`LeanSignalVictoriaMetrics` service and is not a configurable option.
 
 ## Upgrading
 
