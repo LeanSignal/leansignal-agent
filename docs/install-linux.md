@@ -87,6 +87,28 @@ central dataplane). It's set to `--retentionPeriod=1d` in
 `/etc/systemd/system/leansignal-victoria-metrics.service` and is not a configurable
 option.
 
+### Change the agent key or tenant
+
+Connection details live in **`/etc/leansignal-agent/agent.env`**. Edit it, then
+restart only the agent (VictoriaMetrics + its data are untouched):
+
+```bash
+sudo nano /etc/leansignal-agent/agent.env
+```
+```ini
+LEANSIGNAL_ENDPOINT=<tenant>-grpc.eu11.leansignal.io:443
+LEANSIGNAL_AGENT_KEY=<key>
+LEANSIGNAL_DATAPLANE_ENDPOINT=https://<tenant>-ingest.eu11.leansignal.io/api/v1/write
+```
+```bash
+sudo systemctl restart leansignal-agent
+```
+
+Changing the **tenant** updates **three** values — the key **and** both hosts
+(`-grpc` control + `-ingest` dataplane embed the tenant name). To change only the
+key, edit `LEANSIGNAL_AGENT_KEY`. Or just re-run the installer with
+`--agent-key` / `--tenant` (it rewrites these and keeps your config + VM data).
+
 ## Upgrading
 
 Upgrade just the agent — VictoriaMetrics and its data are untouched:

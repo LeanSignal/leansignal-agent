@@ -83,6 +83,20 @@ curl -s http://127.0.0.1:8428/api/v1/label/__name__/values
 Send your own app metrics to the in-cluster OTLP service
 `leansignal-agent.leansignal.svc:4317` (gRPC) / `:4318` (HTTP).
 
+## Change the agent key or tenant
+
+Key and tenant are Helm values — `helm upgrade` to change them (the VictoriaMetrics
+PVC + data are retained):
+```bash
+helm upgrade leansignal-agent oci://ghcr.io/leansignal/charts/leansignal-agent \
+  --namespace leansignal --reuse-values \
+  --set leansignal.tenant=NEW_TENANT \
+  --set leansignal.agentKey.value=NEW_KEY
+```
+If you supply the key via an existing Secret (see "Using an existing Secret" above),
+rotate that Secret instead and restart:
+`kubectl -n leansignal rollout restart deploy/leansignal-agent`.
+
 ## Upgrading
 
 ```bash
