@@ -78,6 +78,29 @@ configurable option.
 > Note: macOS binaries from a release are not notarized; Gatekeeper may require
 > approval the first time. Bundles installed via the script run as root daemons.
 
+### Change the agent key or tenant
+
+The live connection details are the agent LaunchDaemon's `EnvironmentVariables`
+(launchd does **not** read `agent.env` on macOS). Edit the three `<string>` values in
+**`/Library/LaunchDaemons/com.leansignal.agent.plist`**, then reload only the agent:
+
+```bash
+sudo nano /Library/LaunchDaemons/com.leansignal.agent.plist
+```
+```xml
+<key>LEANSIGNAL_ENDPOINT</key>           <string><tenant>-grpc.eu11.leansignal.io:443</string>
+<key>LEANSIGNAL_AGENT_KEY</key>          <string><key></string>
+<key>LEANSIGNAL_DATAPLANE_ENDPOINT</key> <string>https://<tenant>-ingest.eu11.leansignal.io/api/v1/write</string>
+```
+```bash
+sudo launchctl unload /Library/LaunchDaemons/com.leansignal.agent.plist
+sudo launchctl load -w /Library/LaunchDaemons/com.leansignal.agent.plist
+```
+
+Changing the **tenant** updates **three** values (the key **and** both `-grpc` /
+`-ingest` hosts, which embed the tenant name). Or just re-run the installer with
+`--agent-key` / `--tenant` (it rewrites these and keeps your config + VM data).
+
 ## Upgrading
 
 Upgrade just the agent — VictoriaMetrics and its data are untouched:
