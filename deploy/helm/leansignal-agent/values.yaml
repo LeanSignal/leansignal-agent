@@ -95,3 +95,6 @@ affinity: {}
 
 # Extra collector log level: debug | info | warn | error
 logLevel: info
+
+# Collector log format: console (human-readable text) | json (structured)
+logEncoding: console

@@ -123,6 +123,18 @@ func (c *KnownTimeseriesCache) CountDemanded(demanded map[string]struct{}) int {
 	return count
 }
 
+// MetricNameSet returns the set of distinct metric names across all known series.
+func (c *KnownTimeseriesCache) MetricNameSet() map[string]struct{} {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+
+	set := make(map[string]struct{})
+	for _, entry := range c.data {
+		set[entry.MetricName] = struct{}{}
+	}
+	return set
+}
+
 // IsTimeseriesKnown returns true if the timeseries with the given key exists in the cache.
 func (c *KnownTimeseriesCache) IsTimeseriesKnown(key HashKey) bool {
 	c.mu.RLock()

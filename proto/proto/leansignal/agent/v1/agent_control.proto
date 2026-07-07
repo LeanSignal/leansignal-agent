@@ -100,6 +100,11 @@ message GetStatus {}
 // UpdateConfig pushes an opaque config blob to the agent.
 message UpdateConfig { bytes config = 1; }
 
+// GetDiagnosis asks the agent to log its demand-vs-known diagnosis to its own
+// log (fire-and-forget; no reply). Admin-only diagnostic: surfaces which
+// demanded metric names have no matching series in the known-timeseries cache.
+message GetDiagnosis {}
+
 // ---- query tunnel (server -> agent request, agent -> server response) ----
 //
 // lean-api proxies the UI's edit-mode VictoriaMetrics queries to the agent's
@@ -160,5 +165,6 @@ message ServerMessage {
     GetStatus get_status = 5;
     UpdateConfig update_config = 6;
     QueryRequest query_request = 7;     // proxy the UI's VM query to the agent
+    GetDiagnosis get_diagnosis = 8;     // ask the agent for demand-vs-known diagnosis
   }
 }

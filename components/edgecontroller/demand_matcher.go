@@ -17,7 +17,10 @@
 // leansignaledgecontroller/demand_matcher.go
 package leansignaledgecontroller
 
-import "strings"
+import (
+	"sort"
+	"strings"
+)
 
 // expandDemandNames expands a demand list (metric names extracted from PromQL)
 // into the set of Prometheus series names the demand filter would forward.
@@ -64,4 +67,32 @@ func expandDemandNames(demands []string) map[string]struct{} {
 		set[base+"_count"] = struct{}{}
 	}
 	return set
+}
+
+// diagnoseDemand partitions the demand list into names that match at least one
+// known series (matched) and names that match none (missing / "not found").
+// A demanded name matches when its family expansion (expandDemandNames) shares
+// any name with knownNames — the same semantics the demand filter uses. Both
+// returned slices are sorted.
+func diagnoseDemand(demands []string, knownNames map[string]struct{}) (matched, missing []string) {
+	for _, d := range demands {
+		if d == "" {
+			continue
+		}
+		found := false
+		for name := range expandDemandNames([]string{d}) {
+			if _, ok := knownNames[name]; ok {
+				found = true
+				break
+			}
+		}
+		if found {
+			matched = append(matched, d)
+		} else {
+			missing = append(missing, d)
+		}
+	}
+	sort.Strings(matched)
+	sort.Strings(missing)
+	return matched, missing
 }

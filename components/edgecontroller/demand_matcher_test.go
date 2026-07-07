@@ -109,3 +109,58 @@ func TestUpdateTimeseriesStoresMetricName(t *testing.T) {
 		t.Fatalf("CountDemanded = %d, want 1 (MetricName not stored on create?)", got)
 	}
 }
+
+func TestDiagnoseDemand(t *testing.T) {
+	// Known metric names: a histogram family, a demanded gauge; NOT node_load1.
+	known := map[string]struct{}{
+		"http_duration_bucket": {},
+		"http_duration_sum":    {},
+		"http_duration_count":  {},
+		"up":                   {},
+	}
+	// Demand a matched histogram (by _bucket), a matched gauge, and two that
+	// have no known series.
+	matched, missing := diagnoseDemand(
+		[]string{"http_duration_bucket", "up", "does_not_exist", "node_load1"},
+		known,
+	)
+
+	wantMatched := []string{"http_duration_bucket", "up"}
+	wantMissing := []string{"does_not_exist", "node_load1"}
+	if !equalStrings(matched, wantMatched) {
+		t.Errorf("matched = %v, want %v", matched, wantMatched)
+	}
+	if !equalStrings(missing, wantMissing) {
+		t.Errorf("missing = %v, want %v", missing, wantMissing)
+	}
+}
+
+func TestMetricNameSet(t *testing.T) {
+	c := NewKnownTimeseriesCache(zap.NewNop())
+	c.UpdateTimeseries(HashKey{1}, &TimeseriesEntry{MetricName: "up", Samples: 1})
+	c.UpdateTimeseries(HashKey{2}, &TimeseriesEntry{MetricName: "up", Samples: 1}) // dup name, different series
+	c.UpdateTimeseries(HashKey{3}, &TimeseriesEntry{MetricName: "node_load1", Samples: 1})
+
+	set := c.MetricNameSet()
+	if len(set) != 2 {
+		t.Fatalf("MetricNameSet size = %d, want 2 (distinct names)", len(set))
+	}
+	if _, ok := set["up"]; !ok {
+		t.Error("expected 'up' in name set")
+	}
+	if _, ok := set["node_load1"]; !ok {
+		t.Error("expected 'node_load1' in name set")
+	}
+}
+
+func equalStrings(a, b []string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
+}
