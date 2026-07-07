@@ -18,11 +18,22 @@
 package leansignaledgecontroller
 
 import (
+	"sort"
 	"sync"
 	"time"
 
 	"go.uber.org/zap"
 )
+
+// KnownEntryView is the JSON-serializable view of a known-cache entry, used by
+// the diagnosis log dump.
+type KnownEntryView struct {
+	Fingerprint     string `json:"fingerprint" yaml:"fingerprint"`             // HashKey hex (the map key)
+	MetricName      string `json:"metric_name" yaml:"metric_name"`             // Prometheus series name
+	LastUpdate      int64  `json:"last_update" yaml:"last_update"`             // unix seconds, last sample
+	LastBackendSync int64  `json:"last_backend_sync" yaml:"last_backend_sync"` // unix seconds, last synced
+	Samples         int64  `json:"samples" yaml:"samples"`                     // sum of the 8h ring buffer
+}
 
 // HoursLog is the number of hours to keep in the ring buffer.
 const HoursLog = 8
@@ -133,6 +144,31 @@ func (c *KnownTimeseriesCache) MetricNameSet() map[string]struct{} {
 		set[entry.MetricName] = struct{}{}
 	}
 	return set
+}
+
+// Snapshot returns a JSON-serializable view of every known series, sorted by
+// metric name then fingerprint for stable output. Used by the diagnosis dump.
+func (c *KnownTimeseriesCache) Snapshot() []KnownEntryView {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+
+	out := make([]KnownEntryView, 0, len(c.data))
+	for key, entry := range c.data {
+		out = append(out, KnownEntryView{
+			Fingerprint:     key.String(),
+			MetricName:      entry.MetricName,
+			LastUpdate:      entry.LastUpdate,
+			LastBackendSync: entry.LastBackendSync,
+			Samples:         c.sumSamples(entry),
+		})
+	}
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].MetricName != out[j].MetricName {
+			return out[i].MetricName < out[j].MetricName
+		}
+		return out[i].Fingerprint < out[j].Fingerprint
+	})
+	return out
 }
 
 // IsTimeseriesKnown returns true if the timeseries with the given key exists in the cache.

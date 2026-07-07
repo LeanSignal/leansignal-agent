@@ -18,12 +18,22 @@
 package leansignaledgecontroller
 
 import (
+	"sort"
 	"sync"
 
 	"go.uber.org/zap"
 
 	leansignalmetricsindex "github.com/leansignal/leansignal-agent/components/metricsindex"
 )
+
+// DiscoveredEntryView is the JSON-serializable view of a discovered-cache entry,
+// used by the diagnosis log dump.
+type DiscoveredEntryView struct {
+	Fingerprint string            `json:"fingerprint" yaml:"fingerprint"`
+	MetricName  string            `json:"metric_name" yaml:"metric_name"`
+	Labels      map[string]string `json:"labels" yaml:"labels"`
+	Samples     int               `json:"samples" yaml:"samples"`
+}
 
 // Type aliases for cleaner code
 type (
@@ -134,6 +144,34 @@ func (c *DiscoveredTimeseriesCache) GetBatch(batchSize int) ([]DiscoveredTimeser
 	}
 
 	return items, keys
+}
+
+// Snapshot returns a JSON-serializable view of every discovered series (name +
+// labels), sorted by metric name then fingerprint. Used by the diagnosis dump.
+func (c *DiscoveredTimeseriesCache) Snapshot() []DiscoveredEntryView {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+
+	out := make([]DiscoveredEntryView, 0, len(c.data))
+	for key, entry := range c.data {
+		labels := make(map[string]string, len(entry.Labels))
+		for _, lp := range entry.Labels {
+			labels[lp.Name] = lp.Value
+		}
+		out = append(out, DiscoveredEntryView{
+			Fingerprint: key.String(),
+			MetricName:  entry.MetricName,
+			Labels:      labels,
+			Samples:     entry.Samples,
+		})
+	}
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].MetricName != out[j].MetricName {
+			return out[i].MetricName < out[j].MetricName
+		}
+		return out[i].Fingerprint < out[j].Fingerprint
+	})
+	return out
 }
 
 // PurgeBatch removes the specified hash keys from the cache.

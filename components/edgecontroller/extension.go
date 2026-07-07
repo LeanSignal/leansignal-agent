@@ -342,6 +342,7 @@ func (e *edgeControllerExtension) handleServerMessage(msg *agentv1.ServerMessage
 			zap.Int("demanded_series", d.demandedSeries),
 			zap.Uint64("demand_hash", d.demandHash),
 		)
+		e.writeCacheFiles()
 	case *agentv1.ServerMessage_UpdateConfig:
 		// TODO: apply config to the collector.
 		e.logger.Info("COMMAND_RECEIVED: update_config")

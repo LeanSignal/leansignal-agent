@@ -5,12 +5,15 @@ package leansignaledgecontroller
 
 import (
 	"fmt"
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
 	"go.uber.org/zap/zaptest/observer"
+	"gopkg.in/yaml.v3"
 
 	agentv1 "github.com/leansignal/leansignal-agent/proto/gen/leansignal/agent/v1"
 )
@@ -135,11 +138,12 @@ func TestBuildDiagnosis(t *testing.T) {
 	}
 }
 
-// A GetDiagnosis command logs the diagnosis (matched/missing) into the agent
-// log and does not reply on the stream.
+// A GetDiagnosis command logs the diagnosis summary (matched/missing) and writes
+// the three caches as YAML files to DiagnosticsDir. It does not reply on the stream.
 func TestHandleGetDiagnosisLogs(t *testing.T) {
 	core, logs := observer.New(zapcore.InfoLevel)
-	e := newEdgeControllerExtension(zap.New(core), &Config{})
+	dir := t.TempDir()
+	e := newEdgeControllerExtension(zap.New(core), &Config{DiagnosticsDir: dir})
 
 	e.knownTimeseriesCache.UpdateTimeseries(HashKey{1}, &TimeseriesEntry{MetricName: "up", Samples: 1})
 	e.handleServerMessage(&agentv1.ServerMessage{
@@ -150,16 +154,46 @@ func TestHandleGetDiagnosisLogs(t *testing.T) {
 		Body: &agentv1.ServerMessage_GetDiagnosis{GetDiagnosis: &agentv1.GetDiagnosis{}},
 	})
 
+	// The summary line still reports what's matched vs missing.
 	entries := logs.FilterMessage("COMMAND_RECEIVED: get_diagnosis").All()
 	if len(entries) != 1 {
 		t.Fatalf("expected 1 diagnosis log entry, got %d", len(entries))
 	}
 	fields := entries[0].ContextMap()
-	// zap's observer stores a Strings field as []interface{}; compare via string form.
 	if got := fmt.Sprintf("%v", fields["missing_metrics"]); got != "[does_not_exist]" {
 		t.Errorf("logged missing_metrics = %v, want [does_not_exist]", got)
 	}
 	if got := fmt.Sprintf("%v", fields["matched_metrics"]); got != "[up]" {
 		t.Errorf("logged matched_metrics = %v, want [up]", got)
+	}
+
+	// The three caches are written to disk as YAML.
+	var knownDoc knownCacheDoc
+	readYAMLFile(t, filepath.Join(dir, knownCacheFile), &knownDoc)
+	if knownDoc.Count != 1 || len(knownDoc.Entries) != 1 || knownDoc.Entries[0].MetricName != "up" || knownDoc.Entries[0].Fingerprint == "" {
+		t.Errorf("KnownTimeseriesCache.yaml = %+v, want one 'up' series with a fingerprint", knownDoc)
+	}
+
+	var discDoc discoveredCacheDoc
+	readYAMLFile(t, filepath.Join(dir, discoveredCacheFile), &discDoc)
+	if discDoc.Count != 0 {
+		t.Errorf("DiscoveredTimeseriesCache.yaml count = %d, want 0", discDoc.Count)
+	}
+
+	var demandDoc demandCacheDoc
+	readYAMLFile(t, filepath.Join(dir, demandCacheFile), &demandDoc)
+	if demandDoc.Hash != 5 || fmt.Sprintf("%v", demandDoc.Metrics) != "[up does_not_exist]" {
+		t.Errorf("DemandTimeseriesCache.yaml = %+v, want metrics [up does_not_exist] hash 5", demandDoc)
+	}
+}
+
+func readYAMLFile(t *testing.T, path string, out any) {
+	t.Helper()
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read %s: %v", path, err)
+	}
+	if err := yaml.Unmarshal(data, out); err != nil {
+		t.Fatalf("unmarshal %s: %v", path, err)
 	}
 }

@@ -59,6 +59,11 @@ type Config struct {
 	// control stream and the agent runs them here. If empty, the agent answers
 	// QueryRequests with a 503 ("query disabled").
 	LocalVMQueryURL string `mapstructure:"local_vm_query_url"`
+
+	// DiagnosticsDir is where the get_diagnosis command writes the cache dump
+	// files (KnownTimeseriesCache.yaml, DiscoveredTimeseriesCache.yaml,
+	// DemandTimeseriesCache.yaml). Defaults to the OS temp dir when empty.
+	DiagnosticsDir string `mapstructure:"diagnostics_dir"`
 }
 
 // Validate checks if the configuration is valid.

@@ -540,3 +540,27 @@ func TestKnownTimeseriesCache_EmptyBatchRequests(t *testing.T) {
 		t.Error("expected nil for zero batch size")
 	}
 }
+
+func TestKnownCacheSnapshot(t *testing.T) {
+	c := NewKnownTimeseriesCache(zap.NewNop())
+	c.UpdateTimeseries(HashKey{2}, &TimeseriesEntry{MetricName: "b_metric", Samples: 3})
+	c.UpdateTimeseries(HashKey{1}, &TimeseriesEntry{MetricName: "a_metric", Samples: 5})
+
+	snap := c.Snapshot()
+	if len(snap) != 2 {
+		t.Fatalf("Snapshot len = %d, want 2", len(snap))
+	}
+	// Sorted by metric name.
+	if snap[0].MetricName != "a_metric" || snap[1].MetricName != "b_metric" {
+		t.Errorf("Snapshot order = %q,%q, want a_metric,b_metric", snap[0].MetricName, snap[1].MetricName)
+	}
+	if snap[0].Samples != 5 {
+		t.Errorf("a_metric samples = %d, want 5 (ring sum)", snap[0].Samples)
+	}
+	if snap[0].Fingerprint == "" {
+		t.Error("expected non-empty fingerprint")
+	}
+	if snap[0].LastUpdate == 0 {
+		t.Error("expected LastUpdate to be set")
+	}
+}
