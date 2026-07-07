@@ -30,6 +30,7 @@ type DemandTimeseriesCache struct {
 	logger     *zap.Logger
 	mu         sync.RWMutex
 	timeseries []string
+	demandHash uint64           // content hash of the applied demand set (0 = none)
 	LastUpdate int64            // unix timestamp (seconds) of the last update
 	timeFunc   func() time.Time // injectable for testing
 }
@@ -37,6 +38,7 @@ type DemandTimeseriesCache struct {
 // DemandTimeseriesSnapshot is the value type returned by GetDemands.
 type DemandTimeseriesSnapshot struct {
 	Timeseries []string
+	DemandHash uint64
 	LastUpdate int64
 }
 
@@ -53,6 +55,7 @@ func (c *DemandTimeseriesCache) Init() {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.timeseries = nil
+	c.demandHash = 0
 	c.LastUpdate = 0
 }
 
@@ -68,6 +71,7 @@ func (c *DemandTimeseriesCache) GetDemands() DemandTimeseriesSnapshot {
 
 	return DemandTimeseriesSnapshot{
 		Timeseries: cp,
+		DemandHash: c.demandHash,
 		LastUpdate: c.LastUpdate,
 	}
 }
@@ -77,14 +81,15 @@ func (c *DemandTimeseriesCache) setTimeFunc(fn func() time.Time) {
 	c.timeFunc = fn
 }
 
-// UpdateDemands replaces the ordered timeseries list with the provided slice and
-// records the current time as LastUpdate. The internal state stores a copy of the
-// provided slice so subsequent mutations by the caller are safe.
+// UpdateDemands replaces the ordered timeseries list with the provided slice,
+// stores the server's content hash of it, and records the current time as
+// LastUpdate. The internal state stores a copy of the provided slice so
+// subsequent mutations by the caller are safe.
 //
 // Note: the leansignal_demand_filter processor reads GetDemands() live on every
 // scrape batch — there is no separate notification channel.  The new list will
 // be active for the very next metrics batch that arrives after this call returns.
-func (c *DemandTimeseriesCache) UpdateDemands(timeseries []string) {
+func (c *DemandTimeseriesCache) UpdateDemands(timeseries []string, hash uint64) {
 	cp := make([]string, len(timeseries))
 	copy(cp, timeseries)
 
@@ -92,9 +97,11 @@ func (c *DemandTimeseriesCache) UpdateDemands(timeseries []string) {
 	defer c.mu.Unlock()
 
 	c.timeseries = cp
+	c.demandHash = hash
 	c.LastUpdate = c.timeFunc().Unix()
 
 	c.logger.Info("demand list updated",
 		zap.Int("demanded_metrics_count", len(cp)),
+		zap.Uint64("demand_hash", hash),
 	)
 }

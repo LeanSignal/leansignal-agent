@@ -33,6 +33,7 @@ const TargetBackendUpdateMinutes = 1
 
 // KnownTimeseriesEntry represents a known timeseries with its metadata and hourly samples.
 type KnownTimeseriesEntry struct {
+	MetricName      string          // Prometheus-normalised metric name of the series
 	LastUpdate      int64           // unix timestamp (seconds) of last sample update
 	LastBackendSync int64           // unix timestamp (seconds) of last backend sync
 	lastHour        int64           // unix hour (timestamp / 3600) when ring buffer was last updated
@@ -102,6 +103,26 @@ func (c *KnownTimeseriesCache) GetPendingBackendUpdates() int {
 	return count
 }
 
+// CountDemanded returns the number of known series whose metric name is in the
+// demanded set (as produced by expandDemandNames) — i.e. the series the demand
+// filter forwards to the dataplane VM.
+func (c *KnownTimeseriesCache) CountDemanded(demanded map[string]struct{}) int {
+	if len(demanded) == 0 {
+		return 0
+	}
+
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+
+	count := 0
+	for _, entry := range c.data {
+		if _, ok := demanded[entry.MetricName]; ok {
+			count++
+		}
+	}
+	return count
+}
+
 // IsTimeseriesKnown returns true if the timeseries with the given key exists in the cache.
 func (c *KnownTimeseriesCache) IsTimeseriesKnown(key HashKey) bool {
 	c.mu.RLock()
@@ -126,6 +147,7 @@ func (c *KnownTimeseriesCache) UpdateTimeseries(key HashKey, entry *TimeseriesEn
 	if !exists {
 		// Create new entry with all samples at 0
 		newEntry := &KnownTimeseriesEntry{
+			MetricName:      entry.MetricName,
 			LastUpdate:      nowUnix,
 			LastBackendSync: 0,
 			lastHour:        currentHour,
