@@ -153,3 +153,17 @@ func TestDemandTimeseriesCache_ConcurrentAccess(t *testing.T) {
 
 	wg.Wait()
 }
+
+func TestDemandTimeseriesCache_StoresHash(t *testing.T) {
+	cache := NewDemandTimeseriesCache(zap.NewNop())
+
+	cache.UpdateDemands([]string{"up"}, 777)
+	if snap := cache.GetDemands(); snap.DemandHash != 777 {
+		t.Errorf("DemandHash = %d, want 777", snap.DemandHash)
+	}
+
+	cache.Init()
+	if snap := cache.GetDemands(); snap.DemandHash != 0 {
+		t.Errorf("DemandHash after Init = %d, want 0", snap.DemandHash)
+	}
+}
