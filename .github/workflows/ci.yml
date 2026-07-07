@@ -14,7 +14,7 @@ jobs:
     name: Go build & test
     runs-on: self-hosted
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
 
       - uses: actions/setup-go@v6
         with:
@@ -40,7 +40,7 @@ jobs:
     name: golangci-lint
     runs-on: self-hosted
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
       - uses: actions/setup-go@v6
         with:
           go-version-file: go.mod
@@ -60,7 +60,7 @@ jobs:
     name: OCB generate + compile
     runs-on: self-hosted
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
       - uses: actions/setup-go@v6
         with:
           go-version-file: go.mod
@@ -78,7 +78,7 @@ jobs:
     name: Helm lint
     runs-on: self-hosted
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
       - uses: azure/setup-helm@v5
       - name: Lint chart
         run: |
@@ -91,7 +91,7 @@ jobs:
     name: Shellcheck installers
     runs-on: self-hosted
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
       - name: Run shellcheck
         run: |
           sudo apt-get update && sudo apt-get install -y shellcheck
