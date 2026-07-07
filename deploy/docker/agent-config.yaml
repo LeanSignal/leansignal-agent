@@ -54,12 +54,3 @@ service:
   telemetry:
     logs:
       level: info
-      # Human-readable text logs. Set to "json" for machine-parseable structured logs.
-      encoding: console
-    # Drop the repeated {"resource":{service.instance.id/name/version}} block that
-    # otherwise prefixes every log line's context — it's constant per process, pure
-    # noise. (Also drops these labels from the agent's own :8888 self-metrics.)
-    resource:
-      service.instance.id:
-      service.name:
-      service.version:

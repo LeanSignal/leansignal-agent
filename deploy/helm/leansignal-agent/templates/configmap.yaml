@@ -87,11 +87,3 @@ data:
       telemetry:
         logs:
           level: {{ .Values.logLevel }}
-          encoding: {{ .Values.logEncoding | default "console" }}
-        # Drop the repeated {"resource":{service.instance.id/name/version}} block from
-        # every log line's context (constant per process = noise). Also removes these
-        # labels from the agent's own :8888 self-metrics.
-        resource:
-          service.instance.id:
-          service.name:
-          service.version:
