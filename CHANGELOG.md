@@ -6,6 +6,10 @@ All notable changes to this project are documented here. The format is based on
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-07-07
+### Fixed
+- demand filter resync with backend
+
 ## [0.2.0] - 2026-07-01
 
 ### Added
