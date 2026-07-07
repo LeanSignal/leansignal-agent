@@ -111,7 +111,19 @@ See [Upgrading](upgrading.md) for agent-only vs VM upgrades, data safety, and ro
 
 ## Uninstall
 
+Removes both binaries + both LaunchDaemons. Keeps config + VM data unless you pass `--purge`.
+
+**Download, then run** (clearest — `--purge` is a normal script argument):
+
 ```bash
-curl -fsSL https://raw.githubusercontent.com/LeanSignal/leansignal-agent/main/scripts/install/uninstall.sh | sudo bash
-# add --purge to also remove config and data
+curl -fsSL https://raw.githubusercontent.com/LeanSignal/leansignal-agent/main/scripts/install/uninstall.sh -o uninstall.sh
+sudo bash uninstall.sh            # keep config + VM data
+sudo bash uninstall.sh --purge    # also delete config + VM data
+```
+
+One-liner equivalent — `--purge` **must** come after `-s --` (that hands it to the
+script; putting it on `curl` or `bash` errors with "unknown/invalid option"):
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/LeanSignal/leansignal-agent/main/scripts/install/uninstall.sh | sudo bash -s -- --purge
 ```
