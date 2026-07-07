@@ -19,13 +19,13 @@ package leansignaldemandfilter
 
 import (
 	"context"
-	"strings"
-	"unicode"
 
 	"go.opentelemetry.io/collector/component"
 	"go.opentelemetry.io/collector/consumer"
 	"go.opentelemetry.io/collector/pdata/pmetric"
 	"go.uber.org/zap"
+
+	leansignalmetricsindex "github.com/leansignal/leansignal-agent/components/metricsindex"
 )
 
 // DemandProvider is the interface the filter expects the leansignal_edge_controller
@@ -164,23 +164,19 @@ func (p *demandFilterProcessor) ConsumeMetrics(ctx context.Context, md pmetric.M
 // isMetricDemanded returns true if any of the Prometheus names that would be
 // produced for this OTLP metric are present in the demand set.
 //
-// The mapping mirrors the logic in leansignalmetricstracker.processTimeSeriesProm
-// so that the names used for demand matching are identical to the names that were
-// originally discovered and stored in the backend.
+// The base name comes from leansignalmetricsindex.PromMetricBaseName — the same
+// OTLP→Prometheus translation the prometheusremotewrite exporter uses and the
+// same one the metrics tracker reports to lean-api. That guarantees the name we
+// match against is byte-for-byte what the exporter writes to VictoriaMetrics
+// (unit suffixes and _total included), which is exactly what the demand list —
+// derived from dashboard PromQL over those series — contains.
 func (p *demandFilterProcessor) isMetricDemanded(m pmetric.Metric, demandSet map[string]struct{}) bool {
-	base := normalizePromMetricName(m.Name())
+	// base already carries the unit suffix and, for monotonic counters, _total.
+	base := leansignalmetricsindex.PromMetricBaseName(m)
 
 	switch m.Type() {
-	case pmetric.MetricTypeGauge:
+	case pmetric.MetricTypeGauge, pmetric.MetricTypeSum, pmetric.MetricTypeExponentialHistogram:
 		_, ok := demandSet[base]
-		return ok
-
-	case pmetric.MetricTypeSum:
-		promName := base
-		if isPromCounter(m) {
-			promName = ensureTotalSuffix(promName)
-		}
-		_, ok := demandSet[promName]
 		return ok
 
 	case pmetric.MetricTypeHistogram:
@@ -189,10 +185,6 @@ func (p *demandFilterProcessor) isMetricDemanded(m pmetric.Metric, demandSet map
 		_, hasSum := demandSet[base+"_sum"]
 		_, hasCount := demandSet[base+"_count"]
 		return hasBucket || hasSum || hasCount
-
-	case pmetric.MetricTypeExponentialHistogram:
-		_, ok := demandSet[base]
-		return ok
 
 	case pmetric.MetricTypeSummary:
 		// Any of base / _sum / _count suffices.
@@ -203,72 +195,4 @@ func (p *demandFilterProcessor) isMetricDemanded(m pmetric.Metric, demandSet map
 	}
 
 	return false
-}
-
-// ---------------------------------------------------------------------------
-// Prometheus normalization helpers
-//
-// These are intentionally mirrored from leansignalmetricstracker so that
-// this package has no dependency on that module while still producing
-// identical Prometheus names.
-// ---------------------------------------------------------------------------
-
-// normalizePromMetricName approximates the OTLP→Prometheus metric-name
-// translation used by the OTel Collector's Prometheus exporter.
-func normalizePromMetricName(name string) string {
-	if name == "" {
-		return name
-	}
-	name = strings.Map(func(r rune) rune {
-		if unicode.IsLetter(r) || unicode.IsDigit(r) || r == '_' || r == ':' {
-			return r
-		}
-		return '_'
-	}, name)
-	name = collapseUnderscores(name)
-	name = strings.Trim(name, "_")
-	if name == "" {
-		return "_"
-	}
-	if unicode.IsDigit(rune(name[0])) {
-		name = "_" + name
-	}
-	return name
-}
-
-func collapseUnderscores(s string) string {
-	if !strings.Contains(s, "__") {
-		return s
-	}
-	var b strings.Builder
-	b.Grow(len(s))
-	prevUnderscore := false
-	for _, r := range s {
-		if r == '_' {
-			if prevUnderscore {
-				continue
-			}
-			prevUnderscore = true
-			b.WriteRune(r)
-			continue
-		}
-		prevUnderscore = false
-		b.WriteRune(r)
-	}
-	return b.String()
-}
-
-func ensureTotalSuffix(name string) string {
-	if strings.HasSuffix(name, "_total") {
-		return name
-	}
-	return name + "_total"
-}
-
-func isPromCounter(m pmetric.Metric) bool {
-	if m.Type() != pmetric.MetricTypeSum {
-		return false
-	}
-	s := m.Sum()
-	return s.IsMonotonic() && s.AggregationTemporality() == pmetric.AggregationTemporalityCumulative
 }

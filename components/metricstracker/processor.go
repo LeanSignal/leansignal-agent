@@ -29,6 +29,8 @@ import (
 	"go.opentelemetry.io/collector/pdata/pcommon"
 	"go.opentelemetry.io/collector/pdata/pmetric"
 	"go.uber.org/zap"
+
+	leansignalmetricsindex "github.com/leansignal/leansignal-agent/components/metricsindex"
 )
 
 // metricsTrackerProcessor implements processor.Metrics.
@@ -185,16 +187,13 @@ func (p *metricsTrackerProcessor) logMetric(name string) {
 // counters get a _total suffix, histograms get _bucket/_sum/_count, summaries get
 // quantile series + _sum/_count).
 func (p *metricsTrackerProcessor) logMetricProm(m pmetric.Metric) {
-	base := normalizePromMetricName(m.Name())
+	base := leansignalmetricsindex.PromMetricBaseName(m)
 	switch m.Type() {
 	case pmetric.MetricTypeGauge:
 		p.logMetric(base)
 	case pmetric.MetricTypeSum:
-		promName := base
-		if isPromCounter(m) {
-			promName = ensureTotalSuffix(promName)
-		}
-		p.logMetric(promName)
+		// base already carries _total for monotonic counters.
+		p.logMetric(base)
 	case pmetric.MetricTypeHistogram:
 		p.logMetric(base + "_bucket")
 		p.logMetric(base + "_sum")
@@ -217,7 +216,7 @@ func (p *metricsTrackerProcessor) processTimeSeriesProm(
 	m pmetric.Metric,
 	batch *CollectorTimeseries,
 ) {
-	base := normalizePromMetricName(m.Name())
+	base := leansignalmetricsindex.PromMetricBaseName(m)
 
 	switch m.Type() {
 	case pmetric.MetricTypeGauge:
@@ -227,13 +226,10 @@ func (p *metricsTrackerProcessor) processTimeSeriesProm(
 		}
 
 	case pmetric.MetricTypeSum:
-		promName := base
-		if isPromCounter(m) {
-			promName = ensureTotalSuffix(promName)
-		}
+		// base already carries _total for monotonic counters.
 		dps := m.Sum().DataPoints()
 		for i := 0; i < dps.Len(); i++ {
-			p.processPromSeries(promName, resAttrs, dps.At(i).Attributes(), nil, batch)
+			p.processPromSeries(base, resAttrs, dps.At(i).Attributes(), nil, batch)
 		}
 
 	case pmetric.MetricTypeHistogram:
@@ -432,21 +428,6 @@ func float64ToPromString(v float64) string {
 	return strconv.FormatFloat(v, 'g', -1, 64)
 }
 
-func ensureTotalSuffix(metricName string) string {
-	if strings.HasSuffix(metricName, "_total") {
-		return metricName
-	}
-	return metricName + "_total"
-}
-
-func isPromCounter(m pmetric.Metric) bool {
-	if m.Type() != pmetric.MetricTypeSum {
-		return false
-	}
-	s := m.Sum()
-	return s.IsMonotonic() && s.AggregationTemporality() == pmetric.AggregationTemporalityCumulative
-}
-
 func hasHistogramSum(dp pmetric.HistogramDataPoint) bool {
 	// OTLP histogram sum is optional. pdata has historically provided HasSum(),
 	// but not all versions expose it the same way. If HasSum() exists, use it.
@@ -463,66 +444,6 @@ func hasHistogramSum(dp pmetric.HistogramDataPoint) bool {
 		return hs.HasSum()
 	}
 	return true
-}
-
-// normalizePromMetricName approximates the OpenTelemetry Collector's Prometheus
-// translator behavior for metric names:
-//   - Replace unsupported characters with '_' (dots become underscores)
-//   - Collapse redundant underscores
-//   - Trim leading/trailing underscores
-//   - Prefix '_' if the name starts with a digit
-//
-// Prometheus metric-name rules: https://prometheus.io/docs/concepts/data_model/#metric-names-and-labels
-func normalizePromMetricName(name string) string {
-	if name == "" {
-		return name
-	}
-
-	// Replace invalid runes with '_' (keep ':' and '_' which Prometheus allows in names).
-	name = strings.Map(func(r rune) rune {
-		if unicode.IsLetter(r) || unicode.IsDigit(r) || r == '_' || r == ':' {
-			return r
-		}
-		return '_'
-	}, name)
-
-	// Collapse multiple underscores.
-	name = collapseUnderscores(name)
-
-	// Trim leading/trailing underscores.
-	name = strings.Trim(name, "_")
-	if name == "" {
-		return "_"
-	}
-
-	// If name starts with a digit, prefix '_'.
-	if unicode.IsDigit(rune(name[0])) {
-		name = "_" + name
-	}
-
-	return name
-}
-
-func collapseUnderscores(s string) string {
-	if !strings.Contains(s, "__") {
-		return s
-	}
-	var b strings.Builder
-	b.Grow(len(s))
-	prevUnderscore := false
-	for _, r := range s {
-		if r == '_' {
-			if prevUnderscore {
-				continue
-			}
-			prevUnderscore = true
-			b.WriteRune(r)
-			continue
-		}
-		prevUnderscore = false
-		b.WriteRune(r)
-	}
-	return b.String()
 }
 
 // normalizePromLabelName implements (a subset of) the OpenTelemetry Collector's
