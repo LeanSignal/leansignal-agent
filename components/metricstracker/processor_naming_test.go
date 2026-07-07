@@ -13,31 +13,6 @@ import (
 	metricsindex "github.com/leansignal/leansignal-agent/components/metricsindex"
 )
 
-func TestNormalizePromMetricName(t *testing.T) {
-	cases := map[string]string{
-		"my.metric": "my_metric",
-		"a__b":      "a_b",
-		"_x_":       "x",
-		"1abc":      "_1abc",
-		"a:b":       "a:b",
-		"":          "",
-	}
-	for in, want := range cases {
-		if got := normalizePromMetricName(in); got != want {
-			t.Errorf("normalizePromMetricName(%q) = %q, want %q", in, got, want)
-		}
-	}
-}
-
-func TestEnsureTotalSuffix(t *testing.T) {
-	if got := ensureTotalSuffix("http_requests"); got != "http_requests_total" {
-		t.Errorf("got %q", got)
-	}
-	if got := ensureTotalSuffix("http_requests_total"); got != "http_requests_total" {
-		t.Errorf("idempotent failed: %q", got)
-	}
-}
-
 // nameCapture collects the Prometheus metric names broadcast by the tracker.
 type nameCapture struct{ names map[string]bool }
 
@@ -99,6 +74,24 @@ func TestConsumeMetricsPromNaming(t *testing.T) {
 	ehist.SetAggregationTemporality(pmetric.AggregationTemporalityCumulative)
 	ehist.DataPoints().AppendEmpty()
 
+	// unit-bearing monotonic sum -> unit suffix + _total (matches the exporter)
+	u := sm.Metrics().AppendEmpty()
+	u.SetName("system.cpu.time")
+	u.SetUnit("s")
+	usum := u.SetEmptySum()
+	usum.SetIsMonotonic(true)
+	usum.SetAggregationTemporality(pmetric.AggregationTemporalityCumulative)
+	usum.DataPoints().AppendEmpty()
+
+	// unit-bearing non-monotonic sum -> unit suffix, no _total
+	mem := sm.Metrics().AppendEmpty()
+	mem.SetName("system.memory.usage")
+	mem.SetUnit("By")
+	memsum := mem.SetEmptySum()
+	memsum.SetIsMonotonic(false)
+	memsum.SetAggregationTemporality(pmetric.AggregationTemporalityCumulative)
+	memsum.DataPoints().AppendEmpty()
+
 	p := newMetricsTrackerProcessor(zap.NewNop(), nopMetricsConsumer{}, &Config{})
 	if err := p.ConsumeMetrics(context.Background(), md); err != nil {
 		t.Fatal(err)
@@ -114,6 +107,8 @@ func TestConsumeMetricsPromNaming(t *testing.T) {
 		"rpc_duration_sum",
 		"rpc_duration_count",
 		"exp_hist",
+		"system_cpu_time_seconds_total",
+		"system_memory_usage_bytes",
 	} {
 		if !c.names[want] {
 			t.Errorf("expected broadcast to contain metric %q; got %v", want, keys(c.names))

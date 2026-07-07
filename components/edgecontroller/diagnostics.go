@@ -31,6 +31,12 @@ const (
 	knownCacheFile      = "KnownTimeseriesCache.yaml"
 	discoveredCacheFile = "DiscoveredTimeseriesCache.yaml"
 	demandCacheFile     = "DemandTimeseriesCache.yaml"
+
+	// defaultDiagnosticsDir is a fixed, predictable location used when
+	// config.DiagnosticsDir is unset — findable whether the agent runs as root
+	// in a container or as a user locally (unlike the working directory or the
+	// OS-specific temp path). Override via the diagnostics_dir config key.
+	defaultDiagnosticsDir = "/tmp/leansignal-agent"
 )
 
 // Top-level YAML documents (struct field order is preserved by yaml.v3, unlike
@@ -60,7 +66,7 @@ type demandCacheDoc struct {
 func (e *edgeControllerExtension) writeCacheFiles() {
 	dir := e.config.DiagnosticsDir
 	if dir == "" {
-		dir = os.TempDir()
+		dir = defaultDiagnosticsDir
 	}
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		e.logger.Warn("diagnosis: cannot create diagnostics dir", zap.String("dir", dir), zap.Error(err))

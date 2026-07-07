@@ -459,64 +459,39 @@ func TestConsumeMetrics_PrunesEmptyResourceMetrics(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// normalizePromMetricName
+// Unit-suffixed matching (the fix): the filter builds names via promnaming, the
+// same translator the exporter uses, so a demanded system_cpu_time_seconds_total
+// matches an OTLP monotonic sum system.cpu.time with unit "s".
 // ---------------------------------------------------------------------------
 
-func TestNormalizePromMetricName(t *testing.T) {
-	cases := []struct{ in, want string }{
-		{"cpu_usage", "cpu_usage"},
-		{"node.cpu.usage", "node_cpu_usage"},   // dots become underscores
-		{"node-cpu-usage", "node_cpu_usage"},   // hyphens become underscores
-		{"node__cpu__usage", "node_cpu_usage"}, // double underscores collapsed
-		{"123metric", "_123metric"},            // leading digit gets underscore prefix
-		{"my metric!", "my_metric"},            // spaces and special chars
-		{"", ""},                               // empty string passthrough
-		{"a.b..c", "a_b_c"},                    // consecutive dots
-		{"valid:metric", "valid:metric"},       // colons are valid in Prom
+func TestUnitSuffixedCounterMatches(t *testing.T) {
+	cpuTimeSeconds := func() pmetric.Metrics {
+		md := pmetric.NewMetrics()
+		m := md.ResourceMetrics().AppendEmpty().ScopeMetrics().AppendEmpty().Metrics().AppendEmpty()
+		m.SetName("system.cpu.time")
+		m.SetUnit("s")
+		s := m.SetEmptySum()
+		s.SetIsMonotonic(true)
+		s.SetAggregationTemporality(pmetric.AggregationTemporalityCumulative)
+		s.DataPoints().AppendEmpty()
+		return md
 	}
-	for _, tc := range cases {
-		t.Run(tc.in, func(t *testing.T) {
-			if got := normalizePromMetricName(tc.in); got != tc.want {
-				t.Errorf("normalizePromMetricName(%q) = %q, want %q", tc.in, got, tc.want)
-			}
-		})
-	}
-}
 
-// ---------------------------------------------------------------------------
-// ensureTotalSuffix
-// ---------------------------------------------------------------------------
-
-func TestEnsureTotalSuffix(t *testing.T) {
-	cases := []struct{ in, want string }{
-		{"http_requests", "http_requests_total"},
-		{"http_requests_total", "http_requests_total"},
-		{"", "_total"},
+	// Demanding the real (unit-suffixed) name forwards the metric.
+	p, mc := newTestProc(&mockDemandProvider{demands: []string{"system_cpu_time_seconds_total"}})
+	if err := p.ConsumeMetrics(context.Background(), cpuTimeSeconds()); err != nil {
+		t.Fatal(err)
 	}
-	for _, tc := range cases {
-		if got := ensureTotalSuffix(tc.in); got != tc.want {
-			t.Errorf("ensureTotalSuffix(%q) = %q, want %q", tc.in, got, tc.want)
-		}
+	if got := mc.totalReceived(); got != 1 {
+		t.Fatalf("expected the demanded unit-suffixed counter to be forwarded, got %d metrics", got)
 	}
-}
 
-// ---------------------------------------------------------------------------
-// collapseUnderscores
-// ---------------------------------------------------------------------------
-
-func TestCollapseUnderscores(t *testing.T) {
-	cases := []struct{ in, want string }{
-		{"abc", "abc"},
-		{"a_b", "a_b"},
-		{"a__b", "a_b"},
-		{"a___b", "a_b"},
-		{"__leading", "_leading"},
-		{"trailing__", "trailing_"},
-		{"a__b__c", "a_b_c"},
+	// The pre-fix demand name (no unit) must NOT match — that was the bug.
+	p2, mc2 := newTestProc(&mockDemandProvider{demands: []string{"system_cpu_time_total"}})
+	if err := p2.ConsumeMetrics(context.Background(), cpuTimeSeconds()); err != nil {
+		t.Fatal(err)
 	}
-	for _, tc := range cases {
-		if got := collapseUnderscores(tc.in); got != tc.want {
-			t.Errorf("collapseUnderscores(%q) = %q, want %q", tc.in, got, tc.want)
-		}
+	if got := mc2.totalReceived(); got != 0 {
+		t.Fatalf("unit-less name should not match the real series, got %d metrics", got)
 	}
 }

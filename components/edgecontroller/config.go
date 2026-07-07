@@ -62,7 +62,7 @@ type Config struct {
 
 	// DiagnosticsDir is where the get_diagnosis command writes the cache dump
 	// files (KnownTimeseriesCache.yaml, DiscoveredTimeseriesCache.yaml,
-	// DemandTimeseriesCache.yaml). Defaults to the OS temp dir when empty.
+	// DemandTimeseriesCache.yaml). Defaults to /tmp/leansignal-agent when empty.
 	DiagnosticsDir string `mapstructure:"diagnostics_dir"`
 }
 
