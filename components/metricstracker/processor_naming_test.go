@@ -13,31 +13,6 @@ import (
 	metricsindex "github.com/leansignal/leansignal-agent/components/metricsindex"
 )
 
-func TestNormalizePromMetricName(t *testing.T) {
-	cases := map[string]string{
-		"my.metric": "my_metric",
-		"a__b":      "a_b",
-		"_x_":       "x",
-		"1abc":      "_1abc",
-		"a:b":       "a:b",
-		"":          "",
-	}
-	for in, want := range cases {
-		if got := normalizePromMetricName(in); got != want {
-			t.Errorf("normalizePromMetricName(%q) = %q, want %q", in, got, want)
-		}
-	}
-}
-
-func TestEnsureTotalSuffix(t *testing.T) {
-	if got := ensureTotalSuffix("http_requests"); got != "http_requests_total" {
-		t.Errorf("got %q", got)
-	}
-	if got := ensureTotalSuffix("http_requests_total"); got != "http_requests_total" {
-		t.Errorf("idempotent failed: %q", got)
-	}
-}
-
 // nameCapture collects the Prometheus metric names broadcast by the tracker.
 type nameCapture struct{ names map[string]bool }
 
@@ -124,6 +99,43 @@ func TestConsumeMetricsPromNaming(t *testing.T) {
 	pLog := newMetricsTrackerProcessor(zap.NewNop(), nopMetricsConsumer{}, &Config{LogMetrics: true, LogSeries: true})
 	if err := pLog.ConsumeMetrics(context.Background(), md); err != nil {
 		t.Fatal(err)
+	}
+}
+
+// The tracker must report the exporter's unit-suffixed names up to lean-api, so
+// the discovered index matches what actually lands in VictoriaMetrics.
+func TestConsumeMetricsPromNaming_UnitSuffixes(t *testing.T) {
+	c := &nameCapture{names: map[string]bool{}}
+	metricsindex.RegisterTimeseriesReceiver(c)
+	defer metricsindex.UnregisterTimeseriesReceiver(c)
+
+	md := pmetric.NewMetrics()
+	sm := md.ResourceMetrics().AppendEmpty().ScopeMetrics().AppendEmpty()
+
+	// monotonic cumulative sum, unit "s" -> system_cpu_time_seconds_total
+	s := sm.Metrics().AppendEmpty()
+	s.SetName("system.cpu.time")
+	s.SetUnit("s")
+	sum := s.SetEmptySum()
+	sum.SetIsMonotonic(true)
+	sum.SetAggregationTemporality(pmetric.AggregationTemporalityCumulative)
+	sum.DataPoints().AppendEmpty()
+
+	// gauge, unit "By" -> system_memory_usage_bytes
+	g := sm.Metrics().AppendEmpty()
+	g.SetName("system.memory.usage")
+	g.SetUnit("By")
+	g.SetEmptyGauge().DataPoints().AppendEmpty()
+
+	p := newMetricsTrackerProcessor(zap.NewNop(), nopMetricsConsumer{}, &Config{})
+	if err := p.ConsumeMetrics(context.Background(), md); err != nil {
+		t.Fatal(err)
+	}
+
+	for _, want := range []string{"system_cpu_time_seconds_total", "system_memory_usage_bytes"} {
+		if !c.names[want] {
+			t.Errorf("expected broadcast to contain %q; got %v", want, keys(c.names))
+		}
 	}
 }
 

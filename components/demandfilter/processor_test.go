@@ -459,64 +459,72 @@ func TestConsumeMetrics_PrunesEmptyResourceMetrics(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// normalizePromMetricName
+// Unit suffixes — the regression this fix addresses.
+//
+// hostmetrics emit dotted OTLP names with a separate unit (e.g. "system.cpu.time"
+// unit "s"); the prometheusremotewrite exporter turns those into
+// "system_cpu_time_seconds_total" in VictoriaMetrics, and dashboards (hence the
+// demand list) reference that unit-suffixed name. The filter must reproduce the
+// unit suffix or these metrics get dropped despite being demanded.
 // ---------------------------------------------------------------------------
 
-func TestNormalizePromMetricName(t *testing.T) {
-	cases := []struct{ in, want string }{
-		{"cpu_usage", "cpu_usage"},
-		{"node.cpu.usage", "node_cpu_usage"},   // dots become underscores
-		{"node-cpu-usage", "node_cpu_usage"},   // hyphens become underscores
-		{"node__cpu__usage", "node_cpu_usage"}, // double underscores collapsed
-		{"123metric", "_123metric"},            // leading digit gets underscore prefix
-		{"my metric!", "my_metric"},            // spaces and special chars
-		{"", ""},                               // empty string passthrough
-		{"a.b..c", "a_b_c"},                    // consecutive dots
-		{"valid:metric", "valid:metric"},       // colons are valid in Prom
+func addGaugeUnit(sm pmetric.ScopeMetrics, name, unit string) {
+	m := sm.Metrics().AppendEmpty()
+	m.SetName(name)
+	m.SetUnit(unit)
+	m.SetEmptyGauge().DataPoints().AppendEmpty()
+}
+
+func addMonotonicSumUnit(sm pmetric.ScopeMetrics, name, unit string) {
+	m := sm.Metrics().AppendEmpty()
+	m.SetName(name)
+	m.SetUnit(unit)
+	s := m.SetEmptySum()
+	s.SetIsMonotonic(true)
+	s.SetAggregationTemporality(pmetric.AggregationTemporalityCumulative)
+	s.DataPoints().AppendEmpty()
+}
+
+func TestConsumeMetrics_UnitSuffix_MatchesExporterNames(t *testing.T) {
+	// The real tenant-0001 demand set: dashboard PromQL references the exporter's
+	// unit-suffixed names.
+	p, mc := newTestProc(&mockDemandProvider{demands: []string{
+		"system_cpu_time_seconds_total", // counter, unit "s"
+		"system_disk_io_bytes_total",    // counter, unit "By"
+		"system_network_io_bytes_total", // counter, unit "By"
+		"system_filesystem_usage_bytes", // gauge, unit "By"
+		"system_memory_usage_bytes",     // gauge, unit "By"
+		"system_cpu_load_average_1m",    // gauge, no unit
+	}})
+	md := newMD(func(sm pmetric.ScopeMetrics) {
+		addMonotonicSumUnit(sm, "system.cpu.time", "s")
+		addMonotonicSumUnit(sm, "system.disk.io", "By")
+		addMonotonicSumUnit(sm, "system.network.io", "By")
+		addGaugeUnit(sm, "system.filesystem.usage", "By")
+		addGaugeUnit(sm, "system.memory.usage", "By")
+		addGaugeUnit(sm, "system.cpu.load_average.1m", "")
+		addGaugeUnit(sm, "system.memory.utilization", "1") // NOT demanded → dropped
+	})
+	if err := p.ConsumeMetrics(context.Background(), md); err != nil {
+		t.Fatalf("unexpected error: %v", err)
 	}
-	for _, tc := range cases {
-		t.Run(tc.in, func(t *testing.T) {
-			if got := normalizePromMetricName(tc.in); got != tc.want {
-				t.Errorf("normalizePromMetricName(%q) = %q, want %q", tc.in, got, tc.want)
-			}
-		})
+	if n := mc.totalReceived(); n != 6 {
+		t.Errorf("want 6 unit-suffixed metrics forwarded, got %d (names: %v)", n, mc.receivedNames())
 	}
 }
 
-// ---------------------------------------------------------------------------
-// ensureTotalSuffix
-// ---------------------------------------------------------------------------
-
-func TestEnsureTotalSuffix(t *testing.T) {
-	cases := []struct{ in, want string }{
-		{"http_requests", "http_requests_total"},
-		{"http_requests_total", "http_requests_total"},
-		{"", "_total"},
+func TestConsumeMetrics_UnitSuffix_MissingUnitDoesNotMatch(t *testing.T) {
+	// Guard against regressing to the old bug: demanding the *unit-less* name must
+	// NOT match a metric that carries a unit, because the exporter never stores it
+	// under that name.
+	p, mc := newTestProc(&mockDemandProvider{demands: []string{"system_cpu_time_total"}})
+	md := newMD(func(sm pmetric.ScopeMetrics) {
+		addMonotonicSumUnit(sm, "system.cpu.time", "s") // → system_cpu_time_seconds_total
+	})
+	if err := p.ConsumeMetrics(context.Background(), md); err != nil {
+		t.Fatalf("unexpected error: %v", err)
 	}
-	for _, tc := range cases {
-		if got := ensureTotalSuffix(tc.in); got != tc.want {
-			t.Errorf("ensureTotalSuffix(%q) = %q, want %q", tc.in, got, tc.want)
-		}
-	}
-}
-
-// ---------------------------------------------------------------------------
-// collapseUnderscores
-// ---------------------------------------------------------------------------
-
-func TestCollapseUnderscores(t *testing.T) {
-	cases := []struct{ in, want string }{
-		{"abc", "abc"},
-		{"a_b", "a_b"},
-		{"a__b", "a_b"},
-		{"a___b", "a_b"},
-		{"__leading", "_leading"},
-		{"trailing__", "trailing_"},
-		{"a__b__c", "a_b_c"},
-	}
-	for _, tc := range cases {
-		if got := collapseUnderscores(tc.in); got != tc.want {
-			t.Errorf("collapseUnderscores(%q) = %q, want %q", tc.in, got, tc.want)
-		}
+	if n := mc.totalReceived(); n != 0 {
+		t.Errorf("want 0 (unit-less demand must not match unit-bearing metric), got %d", n)
 	}
 }
