@@ -3,6 +3,7 @@ module github.com/leansignal/leansignal-agent
 go 1.25.0
 
 require (
+	github.com/prometheus/otlptranslator v1.0.0
 	github.com/zeebo/xxh3 v1.1.0
 	go.opentelemetry.io/collector/component v1.47.0
 	go.opentelemetry.io/collector/consumer v1.47.0
@@ -11,6 +12,7 @@ require (
 	go.opentelemetry.io/collector/processor v1.47.0
 	go.uber.org/zap v1.28.0
 	google.golang.org/grpc v1.81.1
+	gopkg.in/yaml.v3 v3.0.1
 )
 
 require (

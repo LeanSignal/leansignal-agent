@@ -19,13 +19,13 @@ package leansignaldemandfilter
 
 import (
 	"context"
-	"strings"
-	"unicode"
 
 	"go.opentelemetry.io/collector/component"
 	"go.opentelemetry.io/collector/consumer"
 	"go.opentelemetry.io/collector/pdata/pmetric"
 	"go.uber.org/zap"
+
+	"github.com/leansignal/leansignal-agent/internal/promnaming"
 )
 
 // DemandProvider is the interface the filter expects the leansignal_edge_controller
@@ -164,11 +164,11 @@ func (p *demandFilterProcessor) ConsumeMetrics(ctx context.Context, md pmetric.M
 // isMetricDemanded returns true if any of the Prometheus names that would be
 // produced for this OTLP metric are present in the demand set.
 //
-// The mapping mirrors the logic in leansignalmetricstracker.processTimeSeriesProm
-// so that the names used for demand matching are identical to the names that were
-// originally discovered and stored in the backend.
+// The name comes from promnaming.BaseName — the same translator the exporter and
+// the metrics tracker use — so demand matching is against the exact names written
+// to the backend (unit suffix + _total for counters included).
 func (p *demandFilterProcessor) isMetricDemanded(m pmetric.Metric, demandSet map[string]struct{}) bool {
-	base := normalizePromMetricName(m.Name())
+	base := promnaming.BaseName(m)
 
 	switch m.Type() {
 	case pmetric.MetricTypeGauge:
@@ -176,11 +176,8 @@ func (p *demandFilterProcessor) isMetricDemanded(m pmetric.Metric, demandSet map
 		return ok
 
 	case pmetric.MetricTypeSum:
-		promName := base
-		if isPromCounter(m) {
-			promName = ensureTotalSuffix(promName)
-		}
-		_, ok := demandSet[promName]
+		// base already carries the unit suffix and _total for monotonic counters.
+		_, ok := demandSet[base]
 		return ok
 
 	case pmetric.MetricTypeHistogram:
@@ -203,72 +200,4 @@ func (p *demandFilterProcessor) isMetricDemanded(m pmetric.Metric, demandSet map
 	}
 
 	return false
-}
-
-// ---------------------------------------------------------------------------
-// Prometheus normalization helpers
-//
-// These are intentionally mirrored from leansignalmetricstracker so that
-// this package has no dependency on that module while still producing
-// identical Prometheus names.
-// ---------------------------------------------------------------------------
-
-// normalizePromMetricName approximates the OTLP→Prometheus metric-name
-// translation used by the OTel Collector's Prometheus exporter.
-func normalizePromMetricName(name string) string {
-	if name == "" {
-		return name
-	}
-	name = strings.Map(func(r rune) rune {
-		if unicode.IsLetter(r) || unicode.IsDigit(r) || r == '_' || r == ':' {
-			return r
-		}
-		return '_'
-	}, name)
-	name = collapseUnderscores(name)
-	name = strings.Trim(name, "_")
-	if name == "" {
-		return "_"
-	}
-	if unicode.IsDigit(rune(name[0])) {
-		name = "_" + name
-	}
-	return name
-}
-
-func collapseUnderscores(s string) string {
-	if !strings.Contains(s, "__") {
-		return s
-	}
-	var b strings.Builder
-	b.Grow(len(s))
-	prevUnderscore := false
-	for _, r := range s {
-		if r == '_' {
-			if prevUnderscore {
-				continue
-			}
-			prevUnderscore = true
-			b.WriteRune(r)
-			continue
-		}
-		prevUnderscore = false
-		b.WriteRune(r)
-	}
-	return b.String()
-}
-
-func ensureTotalSuffix(name string) string {
-	if strings.HasSuffix(name, "_total") {
-		return name
-	}
-	return name + "_total"
-}
-
-func isPromCounter(m pmetric.Metric) bool {
-	if m.Type() != pmetric.MetricTypeSum {
-		return false
-	}
-	s := m.Sum()
-	return s.IsMonotonic() && s.AggregationTemporality() == pmetric.AggregationTemporalityCumulative
 }

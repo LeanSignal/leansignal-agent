@@ -17,3 +17,5 @@ deploy/helm/*/Chart.lock
 
 # Editor/agent context (not part of the public repo)
 CLAUDE.md
+
+vm-data/

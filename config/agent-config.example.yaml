@@ -41,6 +41,10 @@ extensions:
     # allow-listed) against the local VM. Base URL (no /api/v1/write) of the same
     # local VM written to below.
     local_vm_query_url: "http://127.0.0.1:8428"
+    # Where the get_diagnosis command writes the cache YAML dumps
+    # (KnownTimeseriesCache.yaml, DiscoveredTimeseriesCache.yaml,
+    # DemandTimeseriesCache.yaml). Defaults to /tmp/leansignal-agent.
+    # diagnostics_dir: /tmp/leansignal-agent
 
 receivers:
   # Accept OTLP from local applications / SDKs.

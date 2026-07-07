@@ -21,6 +21,11 @@ DEV_AGENT_KEY   := deadbeef-dead-beef-dead-beefdeadbeef
 LOCAL_VM        ?= http://localhost:8482
 LOCAL_DATAPLANE ?= http://localhost:8483
 
+# local-avm: a standalone VictoriaMetrics acting as the agent's local store (vm-ag).
+# Serves LOCAL_VM (:8482); data lives in ./vm-data (gitignored).
+AVM_DATA        ?= ./vm-data
+AVM_LISTEN      ?= :8482
+
 # local-run: against a local lean-api (h2c).
 LOCAL_ENDPOINT  ?= localhost:9090
 
@@ -101,6 +106,12 @@ build: generate compile ## Full build: regenerate sources from manifest.yaml + c
 
 .PHONY: local-build
 local-build: compile ## Build the local agent binary into _build/ (run once; re-run after code edits)
+
+.PHONY: local-avm
+local-avm: ## Run a standalone VictoriaMetrics as the agent's local store (vm-ag) at :8482, data in ./vm-data
+	@command -v victoria-metrics >/dev/null 2>&1 || { echo "victoria-metrics not found on PATH (install it, or use the binary from a release bundle)"; exit 1; }
+	@echo "vm-ag: http://localhost$(AVM_LISTEN)  data=$(AVM_DATA)"
+	victoria-metrics -storageDataPath=$(AVM_DATA) -httpListenAddr=$(AVM_LISTEN)
 
 .PHONY: local-run
 local-run: ## Run the pre-built agent vs local lean-api (:9090) + VM (:8482). Run `make local-build` first.

@@ -4,10 +4,16 @@
 package leansignaledgecontroller
 
 import (
+	"fmt"
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
 	"go.uber.org/zap"
+	"go.uber.org/zap/zapcore"
+	"go.uber.org/zap/zaptest/observer"
+	"gopkg.in/yaml.v3"
 
 	agentv1 "github.com/leansignal/leansignal-agent/proto/gen/leansignal/agent/v1"
 )
@@ -93,5 +99,101 @@ func TestGetDemandsEmptyByDefault(t *testing.T) {
 	e := newEdgeControllerExtension(zap.NewNop(), &Config{})
 	if got := e.GetDemands(); len(got) != 0 {
 		t.Fatalf("GetDemands() = %v, want empty", got)
+	}
+}
+
+// buildDiagnosis reports the demand list plus matched/missing names against the
+// known cache, and the available/stored series counts.
+func TestBuildDiagnosis(t *testing.T) {
+	e := newEdgeControllerExtension(zap.NewNop(), &Config{})
+
+	// Known: a demanded histogram (2 series) + an undemanded gauge.
+	e.knownTimeseriesCache.UpdateTimeseries(HashKey{1}, &TimeseriesEntry{MetricName: "http_duration_bucket", Samples: 1})
+	e.knownTimeseriesCache.UpdateTimeseries(HashKey{2}, &TimeseriesEntry{MetricName: "http_duration_sum", Samples: 1})
+	e.knownTimeseriesCache.UpdateTimeseries(HashKey{3}, &TimeseriesEntry{MetricName: "node_load1", Samples: 1})
+
+	// Demand: the histogram (matched) and a bogus name (missing).
+	e.handleServerMessage(&agentv1.ServerMessage{
+		Body: &agentv1.ServerMessage_DemandSet{DemandSet: &agentv1.DemandSet{Metrics: []string{"http_duration_bucket", "does_not_exist"}, Hash: 99}},
+	})
+
+	d := e.buildDiagnosis()
+	if len(d.demand) != 2 {
+		t.Errorf("demand = %v, want 2 names", d.demand)
+	}
+	if len(d.matched) != 1 || d.matched[0] != "http_duration_bucket" {
+		t.Errorf("matched = %v, want [http_duration_bucket]", d.matched)
+	}
+	if len(d.missing) != 1 || d.missing[0] != "does_not_exist" {
+		t.Errorf("missing = %v, want [does_not_exist]", d.missing)
+	}
+	if d.knownSeries != 3 {
+		t.Errorf("knownSeries = %d, want 3", d.knownSeries)
+	}
+	if d.demandedSeries != 2 {
+		t.Errorf("demandedSeries = %d, want 2 (bucket+sum)", d.demandedSeries)
+	}
+	if d.demandHash != 99 {
+		t.Errorf("demandHash = %d, want 99", d.demandHash)
+	}
+}
+
+// A GetDiagnosis command logs the diagnosis summary (matched/missing) and writes
+// the three caches as YAML files to DiagnosticsDir. It does not reply on the stream.
+func TestHandleGetDiagnosisLogs(t *testing.T) {
+	core, logs := observer.New(zapcore.InfoLevel)
+	dir := t.TempDir()
+	e := newEdgeControllerExtension(zap.New(core), &Config{DiagnosticsDir: dir})
+
+	e.knownTimeseriesCache.UpdateTimeseries(HashKey{1}, &TimeseriesEntry{MetricName: "up", Samples: 1})
+	e.handleServerMessage(&agentv1.ServerMessage{
+		Body: &agentv1.ServerMessage_DemandSet{DemandSet: &agentv1.DemandSet{Metrics: []string{"up", "does_not_exist"}, Hash: 5}},
+	})
+
+	e.handleServerMessage(&agentv1.ServerMessage{
+		Body: &agentv1.ServerMessage_GetDiagnosis{GetDiagnosis: &agentv1.GetDiagnosis{}},
+	})
+
+	// The summary line still reports what's matched vs missing.
+	entries := logs.FilterMessage("COMMAND_RECEIVED: get_diagnosis").All()
+	if len(entries) != 1 {
+		t.Fatalf("expected 1 diagnosis log entry, got %d", len(entries))
+	}
+	fields := entries[0].ContextMap()
+	if got := fmt.Sprintf("%v", fields["missing_metrics"]); got != "[does_not_exist]" {
+		t.Errorf("logged missing_metrics = %v, want [does_not_exist]", got)
+	}
+	if got := fmt.Sprintf("%v", fields["matched_metrics"]); got != "[up]" {
+		t.Errorf("logged matched_metrics = %v, want [up]", got)
+	}
+
+	// The three caches are written to disk as YAML.
+	var knownDoc knownCacheDoc
+	readYAMLFile(t, filepath.Join(dir, knownCacheFile), &knownDoc)
+	if knownDoc.Count != 1 || len(knownDoc.Entries) != 1 || knownDoc.Entries[0].MetricName != "up" || knownDoc.Entries[0].Fingerprint == "" {
+		t.Errorf("KnownTimeseriesCache.yaml = %+v, want one 'up' series with a fingerprint", knownDoc)
+	}
+
+	var discDoc discoveredCacheDoc
+	readYAMLFile(t, filepath.Join(dir, discoveredCacheFile), &discDoc)
+	if discDoc.Count != 0 {
+		t.Errorf("DiscoveredTimeseriesCache.yaml count = %d, want 0", discDoc.Count)
+	}
+
+	var demandDoc demandCacheDoc
+	readYAMLFile(t, filepath.Join(dir, demandCacheFile), &demandDoc)
+	if demandDoc.Hash != 5 || fmt.Sprintf("%v", demandDoc.Metrics) != "[up does_not_exist]" {
+		t.Errorf("DemandTimeseriesCache.yaml = %+v, want metrics [up does_not_exist] hash 5", demandDoc)
+	}
+}
+
+func readYAMLFile(t *testing.T, path string, out any) {
+	t.Helper()
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read %s: %v", path, err)
+	}
+	if err := yaml.Unmarshal(data, out); err != nil {
+		t.Fatalf("unmarshal %s: %v", path, err)
 	}
 }

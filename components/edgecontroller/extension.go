@@ -252,6 +252,32 @@ func (e *edgeControllerExtension) buildPing() *agentv1.Ping {
 	}
 }
 
+// diagnosis is the demand-vs-known snapshot logged on a GetDiagnosis command:
+// the current demand list plus which demanded names have (matched) or lack
+// (missing) a matching known series, and the available/stored series counts.
+type diagnosis struct {
+	demand         []string
+	matched        []string
+	missing        []string
+	knownSeries    int
+	demandedSeries int
+	demandHash     uint64
+}
+
+func (e *edgeControllerExtension) buildDiagnosis() diagnosis {
+	demand := e.demandTimeseriesCache.GetDemands()
+	expanded := expandDemandNames(demand.Timeseries)
+	matched, missing := diagnoseDemand(demand.Timeseries, e.knownTimeseriesCache.MetricNameSet())
+	return diagnosis{
+		demand:         demand.Timeseries,
+		matched:        matched,
+		missing:        missing,
+		knownSeries:    e.knownTimeseriesCache.GetSize(),
+		demandedSeries: e.knownTimeseriesCache.CountDemanded(expanded),
+		demandHash:     demand.DemandHash,
+	}
+}
+
 // pingLoop sends periodic heartbeats carrying cache statistics.
 func (e *edgeControllerExtension) pingLoop(ctx context.Context) {
 	ticker := time.NewTicker(e.config.PingInterval)
@@ -306,6 +332,17 @@ func (e *edgeControllerExtension) handleServerMessage(msg *agentv1.ServerMessage
 	case *agentv1.ServerMessage_GetStatus:
 		e.logger.Info("COMMAND_RECEIVED: get_status")
 		e.replyCommand(msg.GetCorrelationId(), true, "running")
+	case *agentv1.ServerMessage_GetDiagnosis:
+		d := e.buildDiagnosis()
+		e.logger.Info("COMMAND_RECEIVED: get_diagnosis",
+			zap.Strings("demand", d.demand),
+			zap.Strings("matched_metrics", d.matched),
+			zap.Strings("missing_metrics", d.missing),
+			zap.Int("known_series", d.knownSeries),
+			zap.Int("demanded_series", d.demandedSeries),
+			zap.Uint64("demand_hash", d.demandHash),
+		)
+		e.writeCacheFiles()
 	case *agentv1.ServerMessage_UpdateConfig:
 		// TODO: apply config to the collector.
 		e.logger.Info("COMMAND_RECEIVED: update_config")

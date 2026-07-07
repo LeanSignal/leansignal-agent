@@ -29,6 +29,9 @@ extensions:
     ping_interval: 30s
     # UI edit-mode queries tunnel here; the agent appends /api/v1/query itself.
     local_vm_query_url: "${env:LEANSIGNAL_LOCAL_VM}"
+    # get_diagnosis writes cache YAML dumps here (defaults to /tmp/leansignal-agent).
+    # Point at a mounted volume if you want them to survive a pod restart.
+    # diagnostics_dir: /var/lib/leansignal/diagnostics
 
 receivers:
   otlp:

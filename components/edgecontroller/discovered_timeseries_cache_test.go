@@ -342,3 +342,27 @@ func TestDiscoveredTimeseriesCache_ThreadSafety(t *testing.T) {
 
 	// Should not panic - that's the main test for thread safety
 }
+
+func TestDiscoveredCacheSnapshot(t *testing.T) {
+	c := NewDiscoveredTimeseriesCache(zap.NewNop())
+	c.Add(HashKey{1}, &TimeseriesEntry{
+		MetricName: "http_requests_total",
+		Labels:     []LabelPair{{Name: "method", Value: "GET"}, {Name: "code", Value: "200"}},
+		Samples:    2,
+	})
+
+	snap := c.Snapshot()
+	if len(snap) != 1 {
+		t.Fatalf("Snapshot len = %d, want 1", len(snap))
+	}
+	e := snap[0]
+	if e.MetricName != "http_requests_total" || e.Samples != 2 {
+		t.Errorf("entry = %+v, want name http_requests_total samples 2", e)
+	}
+	if e.Labels["method"] != "GET" || e.Labels["code"] != "200" {
+		t.Errorf("labels = %v, want method=GET code=200", e.Labels)
+	}
+	if e.Fingerprint == "" {
+		t.Error("expected non-empty fingerprint")
+	}
+}
