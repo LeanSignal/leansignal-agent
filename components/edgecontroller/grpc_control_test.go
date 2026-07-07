@@ -20,8 +20,9 @@ import (
 // after the agent's Hello and acks every index op by correlation id.
 type fakeControlServer struct {
 	agentv1.UnimplementedAgentControlServer
-	demands []string
-	noAck   bool // when true, never ack index ops (to exercise the agent's ack timeout)
+	demands    []string
+	demandHash uint64 // sent with the DemandSet; agents echo it in pings
+	noAck      bool   // when true, never ack index ops (to exercise the agent's ack timeout)
 
 	mu       sync.Mutex
 	received []*agentv1.AgentMessage
@@ -40,7 +41,7 @@ func (s *fakeControlServer) Connect(stream agentv1.AgentControl_ConnectServer) e
 		switch msg.GetBody().(type) {
 		case *agentv1.AgentMessage_Hello:
 			_ = stream.Send(&agentv1.ServerMessage{
-				Body: &agentv1.ServerMessage_DemandSet{DemandSet: &agentv1.DemandSet{Metrics: s.demands}},
+				Body: &agentv1.ServerMessage_DemandSet{DemandSet: &agentv1.DemandSet{Metrics: s.demands, Hash: s.demandHash}},
 			})
 		case *agentv1.AgentMessage_IndexCreate, *agentv1.AgentMessage_IndexUpdate, *agentv1.AgentMessage_IndexDelete:
 			if s.noAck {
@@ -172,5 +173,29 @@ func TestGRPCControlChannel(t *testing.T) {
 			_, ok := m.GetBody().(*agentv1.AgentMessage_IndexCreate)
 			return ok
 		}) == 1
+	})
+}
+
+// TestPingEchoesDemandHashAndStoredCount: after the server pushes a hashed
+// demand set, the agent's periodic ping echoes that hash and reports how many
+// known series match the demand ("stored timeseries").
+func TestPingEchoesDemandHashAndStoredCount(t *testing.T) {
+	fake := &fakeControlServer{demands: []string{"up"}, demandHash: 12345}
+	_, e, cleanup := startAgentWith(t, fake)
+	defer cleanup()
+
+	// Demands arrive after Hello.
+	waitFor(t, 3*time.Second, func() bool { return len(e.GetDemands()) == 1 })
+
+	// Seed the known cache: one demanded series, one not.
+	e.knownTimeseriesCache.UpdateTimeseries(HashKey{1}, &TimeseriesEntry{MetricName: "up", Samples: 1})
+	e.knownTimeseriesCache.UpdateTimeseries(HashKey{2}, &TimeseriesEntry{MetricName: "node_load1", Samples: 1})
+
+	// The next ping (500ms interval) must echo the hash and the stored count.
+	waitFor(t, 3*time.Second, func() bool {
+		return fake.find(func(m *agentv1.AgentMessage) bool {
+			p, ok := m.GetBody().(*agentv1.AgentMessage_Ping)
+			return ok && p.Ping.GetDemandHash() == 12345 && p.Ping.GetDemandedKnownCacheSize() == 1
+		}) != nil
 	})
 }

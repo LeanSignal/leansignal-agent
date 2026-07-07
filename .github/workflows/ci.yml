@@ -27,7 +27,9 @@ jobs:
         run: go vet ./...
 
       - name: Test (race)
-        run: go test -race ./components/...
+        # Single source of truth: `make test` runs both modules (root ./... +
+        # proto) with -race, so CI can't drift from local. See Makefile.
+        run: make test
 
       - name: License headers
         run: |
@@ -42,11 +44,17 @@ jobs:
       - uses: actions/setup-go@v6
         with:
           go-version-file: go.mod
+          # Persistent self-hosted runner: GOCACHE/GOMODCACHE persist on local
+          # disk, so skip setup-go's multi-GB actions/cache download+upload.
+          cache: false
       - uses: golangci/golangci-lint-action@v9
         with:
           # golangci-lint v2 (v2-schema .golangci.yml). Keep in sync with
           # GOLANGCI_VERSION in the Makefile so local `make lint` == CI.
           version: v2.12.2
+          # Same reason: ~/.cache/golangci-lint + Go build cache persist on the
+          # runner's disk, so don't push/pull them through GitHub's cache service.
+          skip-cache: true
 
   ocb:
     name: OCB generate + compile

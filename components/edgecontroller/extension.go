@@ -238,6 +238,20 @@ func (e *edgeControllerExtension) connect(ctx context.Context) error {
 	return err
 }
 
+// buildPing assembles the heartbeat payload from the current cache state.
+func (e *edgeControllerExtension) buildPing() *agentv1.Ping {
+	demand := e.demandTimeseriesCache.GetDemands()
+	return &agentv1.Ping{
+		KnownCacheSize:         int32(e.knownTimeseriesCache.GetSize()),
+		DiscoveredCacheSize:    int32(e.discoveredTimeseriesCache.GetSize()),
+		PendingBackendUpdates:  int32(e.knownTimeseriesCache.GetPendingBackendUpdates()),
+		DemandCacheSize:        int32(len(demand.Timeseries)),
+		DemandLastUpdate:       demand.LastUpdate,
+		DemandedKnownCacheSize: int32(e.knownTimeseriesCache.CountDemanded(expandDemandNames(demand.Timeseries))),
+		DemandHash:             demand.DemandHash,
+	}
+}
+
 // pingLoop sends periodic heartbeats carrying cache statistics.
 func (e *edgeControllerExtension) pingLoop(ctx context.Context) {
 	ticker := time.NewTicker(e.config.PingInterval)
@@ -248,19 +262,13 @@ func (e *edgeControllerExtension) pingLoop(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			demand := e.demandTimeseriesCache.GetDemands()
-			ping := &agentv1.Ping{
-				KnownCacheSize:        int32(e.knownTimeseriesCache.GetSize()),
-				DiscoveredCacheSize:   int32(e.discoveredTimeseriesCache.GetSize()),
-				PendingBackendUpdates: int32(e.knownTimeseriesCache.GetPendingBackendUpdates()),
-				DemandCacheSize:       int32(len(demand.Timeseries)),
-				DemandLastUpdate:      demand.LastUpdate,
-			}
+			ping := e.buildPing()
 			e.logger.Info("Sending ping to backend",
 				zap.Int32("known", ping.KnownCacheSize),
 				zap.Int32("discovered", ping.DiscoveredCacheSize),
 				zap.Int32("pending_backend_updates", ping.PendingBackendUpdates),
 				zap.Int32("demand", ping.DemandCacheSize),
+				zap.Int32("demanded_known", ping.DemandedKnownCacheSize),
 			)
 			if err := e.sendAgentMessage(&agentv1.AgentMessage{
 				Body: &agentv1.AgentMessage_Ping{Ping: ping},
@@ -293,7 +301,7 @@ func (e *edgeControllerExtension) handleServerMessage(msg *agentv1.ServerMessage
 	case *agentv1.ServerMessage_DemandSet:
 		metrics := body.DemandSet.GetMetrics()
 		e.logger.Info("COMMAND_RECEIVED: demand_set", zap.Int("metrics_count", len(metrics)))
-		e.demandTimeseriesCache.UpdateDemands(metrics)
+		e.demandTimeseriesCache.UpdateDemands(metrics, body.DemandSet.GetHash())
 		e.replyCommand(msg.GetCorrelationId(), true, "demand_set applied")
 	case *agentv1.ServerMessage_GetStatus:
 		e.logger.Info("COMMAND_RECEIVED: get_status")

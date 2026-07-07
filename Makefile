@@ -47,8 +47,9 @@ install-tools: ## Install pinned dev tools (ocb, addlicense, goreleaser)
 	go install github.com/goreleaser/goreleaser/v2@latest
 
 .PHONY: test
-test: ## Run unit tests with the race detector
-	go test -race ./components/...
+test: ## Run all unit tests with the race detector (root + proto modules)
+	go test -race ./...
+	cd proto && go test -race ./...
 
 .PHONY: vet
 vet: ## go vet

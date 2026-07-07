@@ -58,6 +58,12 @@ message Ping {
   int32 pending_backend_updates = 3;
   int32 demand_cache_size = 4;
   int64 demand_last_update = 5;
+  // Known series matching the current demand set — the "stored" count that
+  // actually reaches the dataplane VM.
+  int32 demanded_known_cache_size = 6;
+  // Echo of the last applied DemandSet.hash (0 = none applied yet). The server
+  // re-pushes the demand set when this differs from the current hash.
+  uint64 demand_hash = 7;
 }
 
 message IndexCreate { repeated DiscoveredSeries series = 1; }
@@ -81,7 +87,12 @@ message Ack {
 }
 
 // DemandSet pushes the full list of demanded Prometheus metric names.
-message DemandSet { repeated string metrics = 1; }
+message DemandSet {
+  repeated string metrics = 1;
+  // FNV-1a 64 content hash of the sorted metric list. The agent stores it and
+  // echoes it in Ping.demand_hash so the server can detect missed updates.
+  uint64 hash = 2;
+}
 
 // GetStatus asks the agent to report its current status (reply via CommandResult).
 message GetStatus {}

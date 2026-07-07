@@ -26,6 +26,9 @@ jobs:
       - uses: actions/setup-go@v6
         with:
           go-version-file: go.mod
+          # Persistent self-hosted runner: GOCACHE/GOMODCACHE persist on local
+          # disk, so skip setup-go's multi-GB actions/cache download+upload.
+          cache: false
 
       - name: Initialize CodeQL
         uses: github/codeql-action/init@v3
