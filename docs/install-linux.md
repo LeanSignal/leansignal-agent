@@ -109,6 +109,11 @@ Changing the **tenant** updates **three** values — the key **and** both hosts
 key, edit `LEANSIGNAL_AGENT_KEY`. Or just re-run the installer with
 `--agent-key` / `--tenant` (it rewrites these and keeps your config + VM data).
 
+> If `agent.env` isn't there (an older install may have set the env differently),
+> find the real location with `systemctl cat leansignal-agent` — edit the file the
+> `EnvironmentFile=` line points to, or if the values are inline `Environment=` lines,
+> use `sudo systemctl edit leansignal-agent`. Re-running the installer normalizes it.
+
 ## Upgrading
 
 Upgrade just the agent — VictoriaMetrics and its data are untouched:
@@ -119,7 +124,19 @@ See [Upgrading](upgrading.md) for agent-only vs VM upgrades, data safety, and ro
 
 ## Uninstall
 
+Removes both binaries + both services. Keeps config + VM data unless you pass `--purge`.
+
+**Download, then run** (clearest — `--purge` is a normal script argument):
+
 ```bash
-curl -fsSL https://raw.githubusercontent.com/LeanSignal/leansignal-agent/main/scripts/install/uninstall.sh | sudo bash
-# add --purge to also remove config and data
+curl -fsSL https://raw.githubusercontent.com/LeanSignal/leansignal-agent/main/scripts/install/uninstall.sh -o uninstall.sh
+sudo bash uninstall.sh            # keep config + VM data
+sudo bash uninstall.sh --purge    # also delete config + VM data
+```
+
+One-liner equivalent — `--purge` **must** come after `-s --` (that hands it to the
+script; putting it on `curl` or `bash` errors with "unknown/invalid option"):
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/LeanSignal/leansignal-agent/main/scripts/install/uninstall.sh | sudo bash -s -- --purge
 ```
