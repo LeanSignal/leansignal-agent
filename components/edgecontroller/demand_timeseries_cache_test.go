@@ -39,6 +39,28 @@ func TestNewDemandTimeseriesCache(t *testing.T) {
 	}
 }
 
+func TestDemandTimeseriesCache_GetSize(t *testing.T) {
+	cache := NewDemandTimeseriesCache(zap.NewNop())
+	if got := cache.GetSize(); got != 0 {
+		t.Fatalf("empty GetSize = %d, want 0", got)
+	}
+
+	cache.UpdateDemands([]string{"a", "b", "c"}, 1)
+	if got := cache.GetSize(); got != 3 {
+		t.Fatalf("GetSize = %d, want 3", got)
+	}
+
+	cache.UpdateDemands([]string{"x"}, 2) // replace, not append
+	if got := cache.GetSize(); got != 1 {
+		t.Fatalf("GetSize after replace = %d, want 1", got)
+	}
+
+	cache.Init()
+	if got := cache.GetSize(); got != 0 {
+		t.Fatalf("GetSize after Init = %d, want 0", got)
+	}
+}
+
 func TestDemandTimeseriesCache_Init(t *testing.T) {
 	cache := NewDemandTimeseriesCache(zap.NewNop())
 

@@ -150,6 +150,7 @@ Full docs live in [docs/](docs/index.md):
 - [Usage](docs/usage.md) — send metrics, query the local store, how demand works
 - [Configuration](docs/configuration.md) — settings, env vars, pipelines
 - [Upgrading](docs/upgrading.md) — agent-only vs VM upgrades, data safety, rollback
+- [Agent own telemetry](docs/own-telemetry.md) — the self-monitoring metrics the agent exposes and what to alert on
 - [Architecture](docs/architecture.md) · [Components](docs/components.md)
 - [Development guide](docs/development.md) · [Releasing](docs/releasing.md)
 
