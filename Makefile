@@ -18,6 +18,9 @@ VM_VERSION     := $(shell cat VM_VERSION 2>/dev/null)
 # own local store (used in both modes).
 AGENT_KEY       ?=
 DEV_AGENT_KEY   := deadbeef-dead-beef-dead-beefdeadbeef
+# AGENT_NAME becomes the agent_name label; both run targets set it. Defaults to
+# a dev value derived from the machine hostname.
+AGENT_NAME      ?= dev-$(shell hostname -s 2>/dev/null || echo local)
 LOCAL_VM        ?= http://localhost:8482
 LOCAL_DATAPLANE ?= http://localhost:8483
 
@@ -119,6 +122,7 @@ local-run: ## Run the pre-built agent vs local lean-api (:9090) + VM (:8482). Ru
 	@echo "endpoint=$(LOCAL_ENDPOINT)  vm-ag=$(LOCAL_VM)"
 	LEANSIGNAL_ENDPOINT="$(LOCAL_ENDPOINT)" \
 	LEANSIGNAL_AGENT_KEY="$(or $(AGENT_KEY),$(DEV_AGENT_KEY))" \
+	LEANSIGNAL_AGENT_NAME="$(AGENT_NAME)" \
 	LEANSIGNAL_LOCAL_VM="$(LOCAL_VM)" \
 	LEANSIGNAL_DATAPLANE_ENDPOINT="$(LOCAL_DATAPLANE)" \
 	$(BUILD_DIR)/$(BINARY) --config config/agent-config.local.yaml
@@ -130,6 +134,7 @@ cloud-run: ## Run the pre-built agent vs a CLOUD tenant over TLS(443). Requires 
 	@echo "tenant=$(TENANT)  grpc=$(CLOUD_ENDPOINT)  ingest=$(CLOUD_DATAPLANE)  local-vm=$(LOCAL_VM)"
 	LEANSIGNAL_ENDPOINT="$(CLOUD_ENDPOINT)" \
 	LEANSIGNAL_AGENT_KEY="$(AGENT_KEY)" \
+	LEANSIGNAL_AGENT_NAME="$(AGENT_NAME)" \
 	LEANSIGNAL_LOCAL_VM="$(LOCAL_VM)" \
 	LEANSIGNAL_DATAPLANE_ENDPOINT="$(CLOUD_DATAPLANE)" \
 	$(BUILD_DIR)/$(BINARY) --config config/agent-config.cloud.yaml

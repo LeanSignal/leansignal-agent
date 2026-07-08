@@ -24,6 +24,7 @@ import (
 	"time"
 
 	"go.opentelemetry.io/collector/component"
+	"go.opentelemetry.io/otel/metric"
 	"go.uber.org/zap"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
@@ -48,6 +49,11 @@ const maxMessageBytes = 16 * 1024 * 1024
 type edgeControllerExtension struct {
 	logger *zap.Logger
 	config *Config
+
+	// meterProvider is the collector's internal MeterProvider, set by the
+	// factory. nil in unit tests, in which case self-metrics are not registered.
+	meterProvider metric.MeterProvider
+	metrics       *controllerMetrics
 
 	// Timeseries caches
 	knownTimeseriesCache      *KnownTimeseriesCache
@@ -97,6 +103,12 @@ func (e *edgeControllerExtension) Start(_ context.Context, _ component.Host) err
 	e.discoveredTimeseriesCache.Init()
 	e.demandTimeseriesCache.Init()
 
+	if e.meterProvider != nil {
+		if err := e.registerMetrics(e.meterProvider); err != nil {
+			return err
+		}
+	}
+
 	ctx, cancel := context.WithCancel(context.Background())
 	e.cancelFn = cancel
 	e.rootCtx = ctx
@@ -112,6 +124,7 @@ func (e *edgeControllerExtension) Shutdown(_ context.Context) error {
 	e.logger.Info("Shutting down LeanSignal Edge Controller extension")
 
 	leansignalmetricsindex.UnregisterTimeseriesReceiver(e)
+	e.unregisterMetrics()
 
 	if e.cancelFn != nil {
 		e.cancelFn() // unblocks the stream Recv and the connection loop
@@ -191,6 +204,7 @@ func (e *edgeControllerExtension) dialOptions() []grpc.DialOption {
 // connect opens the gRPC connection + control stream and pumps messages until it ends.
 func (e *edgeControllerExtension) connect(ctx context.Context) error {
 	e.logger.Info("Connecting to backend", zap.String("endpoint", e.config.Endpoint))
+	e.recordConnectionAttempt(ctx)
 
 	conn, err := grpc.NewClient(e.config.Endpoint, e.dialOptions()...)
 	if err != nil {
@@ -218,6 +232,7 @@ func (e *edgeControllerExtension) connect(ctx context.Context) error {
 	}()
 
 	e.logger.Info("Connected to backend successfully")
+	e.recordConnectionEstablished(ctx)
 
 	// Announce ourselves; the server pushes the current demand list in response.
 	if err := e.sendAgentMessage(&agentv1.AgentMessage{

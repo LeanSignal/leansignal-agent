@@ -3,6 +3,7 @@
 #   export LEANSIGNAL_ENDPOINT=wss://api.leansignal.com/api/v1/agents/ws/
 #   export LEANSIGNAL_AGENT_KEY=...
 #   export LEANSIGNAL_DATAPLANE_ENDPOINT=https://dataplane.example.com/api/v1/write
+#   export LEANSIGNAL_AGENT_NAME=my-host   # optional; the agent_name label (default: docker-agent)
 #   docker compose -f deploy/docker/docker-compose.yaml up
 #
 # Send OTLP to localhost:4318, query the local store at http://localhost:8428.
@@ -27,6 +28,7 @@ services:
     environment:
       LEANSIGNAL_ENDPOINT: ${LEANSIGNAL_ENDPOINT:?set LEANSIGNAL_ENDPOINT}
       LEANSIGNAL_AGENT_KEY: ${LEANSIGNAL_AGENT_KEY:?set LEANSIGNAL_AGENT_KEY}
+      LEANSIGNAL_AGENT_NAME: ${LEANSIGNAL_AGENT_NAME:-docker-agent}
       LEANSIGNAL_DATAPLANE_ENDPOINT: ${LEANSIGNAL_DATAPLANE_ENDPOINT:?set LEANSIGNAL_DATAPLANE_ENDPOINT}
     volumes:
       - ./agent-config.yaml:/etc/leansignal-agent/config.yaml:ro

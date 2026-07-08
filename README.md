@@ -54,6 +54,30 @@ flowchart LR
 
 See [docs/architecture.md](docs/architecture.md) for the full design.
 
+## Agent modes: central & edge
+
+An agent installs in one of two modes:
+
+- **central** (default) — the full agent above: local VictoriaMetrics, tracker,
+  demand filter, dataplane forwarding, and the gRPC control channel.
+- **edge** — a lightweight OTLP **forwarder**. It collects host metrics, OTLP from
+  local apps, and its own self-telemetry, stamps identity labels, and ships
+  everything as OTLP to a **central** agent. No local VM, tracker, demand filter,
+  or control channel. Selected by giving the central agent's OTLP endpoint at
+  install (`--central-url HOST:PORT` or `CENTRAL_AGENT_GRPC_URL`).
+
+```
+   Host A (edge)  ─┐
+   Host B (edge)  ─┼─ OTLP ─▶  Host C (central) ─▶ local VM + demanded → dataplane
+   Host C (central)┘
+```
+
+This fans many edge agents across networks into one central aggregation point.
+Every metric carries `agent_name`, `host_name`, `os_type`, and `mode` (`edge`/
+`central`) labels, so each source stays distinct in the shared store. The central
+agent's OTLP receiver is open and unauthenticated by design — keep it on a
+trusted/internal network. See [docs/configuration.md](docs/configuration.md).
+
 ## Quick start
 
 > **Managing an install** — how to check service **status**, **start/stop/restart**
@@ -78,23 +102,25 @@ helm upgrade --install leansignal-agent \
   --set victoria-metrics-single.enabled=true
 ```
 
+`leansignal.agentName` sets the `agent_name` label (defaults to the node name).
 See [docs/install-kubernetes.md](docs/install-kubernetes.md).
 
 ### Linux / macOS
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/LeanSignal/leansignal-agent/main/scripts/install/install.sh \
-  | sudo bash -s -- --agent-key YOUR_KEY --tenant YOUR_TENANT
+  | sudo bash -s -- --agent-key YOUR_KEY --agent-name this-host --tenant YOUR_TENANT
 ```
 
 Installs the agent + local VictoriaMetrics and registers them as services
-(systemd / launchd). See [docs/install-linux.md](docs/install-linux.md) and
+(systemd / launchd). `--agent-name` labels this host's metrics. See
+[docs/install-linux.md](docs/install-linux.md) and
 [docs/install-macos.md](docs/install-macos.md).
 
 ### Windows (PowerShell, as Administrator)
 
 ```powershell
-.\install.ps1 -AgentKey YOUR_KEY -Tenant YOUR_TENANT
+.\install.ps1 -AgentKey YOUR_KEY -AgentName this-host -Tenant YOUR_TENANT
 ```
 
 See [docs/install-windows.md](docs/install-windows.md).
@@ -150,6 +176,7 @@ Full docs live in [docs/](docs/index.md):
 - [Usage](docs/usage.md) — send metrics, query the local store, how demand works
 - [Configuration](docs/configuration.md) — settings, env vars, pipelines
 - [Upgrading](docs/upgrading.md) — agent-only vs VM upgrades, data safety, rollback
+- [Agent own telemetry](docs/own-telemetry.md) — the self-monitoring metrics the agent exposes and what to alert on
 - [Architecture](docs/architecture.md) · [Components](docs/components.md)
 - [Development guide](docs/development.md) · [Releasing](docs/releasing.md)
 

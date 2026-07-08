@@ -49,8 +49,38 @@ receivers:
       disk: {}
       filesystem: {}
       network: {}
+  # Scrape the collector's OWN internal telemetry (otelcol_* self-metrics)
+  # exposed on the service.telemetry.metrics endpoint below (in-process loopback).
+  # These flow through metrics/all just like any other metric: indexed by the
+  # tracker, written in full to the local VM, and forwarded to the dataplane only
+  # when demanded.
+  prometheus/internal:
+    config:
+      scrape_configs:
+        - job_name: otelcol-self
+          scrape_interval: 15s
+          static_configs:
+            - targets: [127.0.0.1:8888]
 
 processors:
+  # Stamp host identity (host.name, os.type). override:false so an OTLP client
+  # that already set its own host.name is not clobbered.
+  resourcedetection:
+    detectors: [env, system]
+    system:
+      hostname_sources: [os]
+    override: false
+  # Stamp the operator-chosen agent name (set at install via --agent-name).
+  resource:
+    attributes:
+      # insert (not upsert): preserve identity that edge agents already stamped on
+      # forwarded data; only set these on this agent's own unlabeled metrics.
+      - key: agent.name
+        value: "${env:LEANSIGNAL_AGENT_NAME}"
+        action: insert
+      - key: mode
+        value: central
+        action: insert
   batch:
     send_batch_size: 5000
     timeout: 1s
@@ -62,16 +92,22 @@ processors:
 
 exporters:
   # This host's "vm-ag" - receives everything. Base URL + write path built here.
+  # resource_to_telemetry_conversion promotes resource attributes (agent.name,
+  # host.name, os.type) to per-series labels (agent_name, host_name, os_type).
   prometheusremotewrite/local:
     endpoint: "${env:LEANSIGNAL_LOCAL_VM}/api/v1/write"
     tls:
       insecure: true
+    resource_to_telemetry_conversion:
+      enabled: true
   # Central dataplane via the tenant's vmauth ingest - only the demanded subset.
   # The agent key is the bearer token vmauth authenticates.
   prometheusremotewrite/dataplane:
     endpoint: "${env:LEANSIGNAL_DATAPLANE_ENDPOINT}/api/v1/write"
     headers:
       Authorization: "Bearer ${env:LEANSIGNAL_AGENT_KEY}"
+    resource_to_telemetry_conversion:
+      enabled: true
 
 connectors:
   forward/demand_filter: {}
@@ -80,13 +116,24 @@ service:
   extensions: [health_check, leansignal_edge_controller]
   pipelines:
     metrics/all:
-      receivers: [otlp, hostmetrics]
-      processors: [leansignalmetrics_tracker, batch]
+      receivers: [otlp, hostmetrics, prometheus/internal]
+      processors: [resourcedetection, resource, leansignalmetrics_tracker, batch]
       exporters: [prometheusremotewrite/local, forward/demand_filter]
     metrics/filtered:
       receivers: [forward/demand_filter]
       processors: [leansignal_demand_filter, batch]
       exporters: [prometheusremotewrite/dataplane]
   telemetry:
+    # Expose the collector's own metrics on 127.0.0.1:8888 so the
+    # prometheus/internal receiver above can scrape them. `detailed` adds the
+    # gRPC/HTTP client+server latency histograms on top of the normal counters.
+    metrics:
+      level: detailed
+      readers:
+        - pull:
+            exporter:
+              prometheus:
+                host: 127.0.0.1
+                port: 8888
     logs:
       level: info

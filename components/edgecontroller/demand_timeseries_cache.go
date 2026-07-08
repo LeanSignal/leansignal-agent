@@ -76,6 +76,13 @@ func (c *DemandTimeseriesCache) GetDemands() DemandTimeseriesSnapshot {
 	}
 }
 
+// GetSize returns the number of demanded timeseries currently held.
+func (c *DemandTimeseriesCache) GetSize() int {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return len(c.timeseries)
+}
+
 // setTimeFunc sets a custom time function for testing purposes.
 func (c *DemandTimeseriesCache) setTimeFunc(fn func() time.Time) {
 	c.timeFunc = fn

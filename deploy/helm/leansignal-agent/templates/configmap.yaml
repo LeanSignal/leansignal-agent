@@ -1,3 +1,5 @@
+{{- if not .Values.config.existingConfigMap }}
+{{- $mode := include "leansignal-agent.mode" . }}
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -9,6 +11,7 @@ data:
     extensions:
       health_check:
         endpoint: 0.0.0.0:13133
+    {{- if eq $mode "central" }}
       leansignal_edge_controller:
         endpoint: "${env:LEANSIGNAL_ENDPOINT}"
         agent_key: "${env:LEANSIGNAL_AGENT_KEY}"
@@ -16,6 +19,7 @@ data:
         reconnect_interval: 5s
         ping_interval: 30s
         local_vm_query_url: {{ include "leansignal-agent.localVMQueryEndpoint" . | quote }}
+    {{- end }}
 
     receivers:
     {{- if .Values.receivers.otlp.enabled }}
@@ -37,53 +41,123 @@ data:
         endpoint: "https://${env:K8S_NODE_NAME}:10250"
         insecure_skip_verify: true
     {{- end }}
+      # Scrape the collector's OWN internal telemetry (otelcol_* self-metrics)
+      # exposed on the service.telemetry.metrics endpoint below (in-pod loopback).
+      prometheus/internal:
+        config:
+          scrape_configs:
+            - job_name: otelcol-self
+              scrape_interval: 15s
+              static_configs:
+                - targets: [127.0.0.1:8888]
 
     processors:
       memory_limiter:
         check_interval: 1s
         limit_percentage: 80
         spike_limit_percentage: 20
+      # Stamp host identity (host.name, os.type). override:false so an OTLP client
+      # that already set its own host.name is not clobbered.
+      resourcedetection:
+        detectors: [env, system]
+        system:
+          hostname_sources: [os]
+        override: false
+      # Stamp the operator-chosen agent name (Values.leansignal.agentName, else the
+      # node name) and the deployment mode. Promoted to the agent_name / mode labels.
+      # central uses insert (preserve identity edge agents already stamped on
+      # forwarded data); edge uses upsert (it is the origin stamping its own).
+      resource:
+        attributes:
+          - key: agent.name
+            value: "${env:LEANSIGNAL_AGENT_NAME}"
+            action: {{ if eq $mode "central" }}insert{{ else }}upsert{{ end }}
+          - key: mode
+            value: {{ $mode }}
+            action: {{ if eq $mode "central" }}insert{{ else }}upsert{{ end }}
       batch:
         send_batch_size: 5000
         timeout: 1s
+    {{- if eq $mode "central" }}
       leansignalmetrics_tracker:
         log_metrics: false
         log_series: false
       leansignal_demand_filter:
         log_filtered: false
+    {{- end }}
 
     exporters:
+    {{- if eq $mode "central" }}
+      # resource_to_telemetry_conversion promotes resource attributes (agent.name,
+      # host.name, os.type, mode) to per-series labels.
       prometheusremotewrite/local:
         endpoint: {{ include "leansignal-agent.localVMEndpoint" . | quote }}
         tls:
           insecure: true
+        resource_to_telemetry_conversion:
+          enabled: true
         retry_on_failure:
           enabled: true
       prometheusremotewrite/dataplane:
         endpoint: "${env:LEANSIGNAL_DATAPLANE_ENDPOINT}"
         headers:
           Authorization: "Bearer ${env:LEANSIGNAL_AGENT_KEY}"
+        resource_to_telemetry_conversion:
+          enabled: true
         retry_on_failure:
           enabled: true
         remote_write_queue:
           enabled: true
           num_consumers: 10
           queue_size: 5000
+    {{- else }}
+      # Edge mode: forward everything to the central agent's OTLP gRPC receiver
+      # (plaintext h2c on the internal network). No local VM, tracker, or dataplane.
+      otlp/central:
+        endpoint: "${env:CENTRAL_AGENT_GRPC_URL}"
+        tls:
+          insecure: true
+        retry_on_failure:
+          enabled: true
+    {{- end }}
 
+    {{- if eq $mode "central" }}
     connectors:
       forward/demand_filter: {}
+    {{- end }}
 
     service:
+    {{- if eq $mode "central" }}
       extensions: [health_check, leansignal_edge_controller]
+    {{- else }}
+      extensions: [health_check]
+    {{- end }}
       pipelines:
         metrics/all:
           receivers: [{{ include "leansignal-agent.metricsReceivers" . }}]
-          processors: [memory_limiter, leansignalmetrics_tracker, batch]
+    {{- if eq $mode "central" }}
+          processors: [memory_limiter, resourcedetection, resource, leansignalmetrics_tracker, batch]
           exporters: [prometheusremotewrite/local, forward/demand_filter]
         metrics/filtered:
           receivers: [forward/demand_filter]
           processors: [leansignal_demand_filter, batch]
           exporters: [prometheusremotewrite/dataplane]
+    {{- else }}
+          processors: [memory_limiter, resourcedetection, resource, batch]
+          exporters: [otlp/central]
+    {{- end }}
       telemetry:
+        # Expose the collector's own metrics on 127.0.0.1:8888 so the
+        # prometheus/internal receiver above can scrape them. `detailed` adds the
+        # gRPC/HTTP client+server latency histograms on top of the normal counters.
+        metrics:
+          level: detailed
+          readers:
+            - pull:
+                exporter:
+                  prometheus:
+                    host: 127.0.0.1
+                    port: 8888
         logs:
           level: {{ .Values.logLevel }}
+{{- end }}

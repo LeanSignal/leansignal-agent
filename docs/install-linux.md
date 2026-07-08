@@ -5,29 +5,43 @@ services. Requires root (the script uses `sudo`). amd64 and arm64 are supported.
 
 ## Install
 
-You only need your agent key + tenant; the gRPC and ingest hosts are derived.
+You need your agent key, an agent name, and the tenant; the gRPC and ingest
+hosts are derived.
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/LeanSignal/leansignal-agent/main/scripts/install/install.sh \
-  | sudo bash -s -- --agent-key YOUR_KEY --tenant YOUR_TENANT
+  | sudo bash -s -- --agent-key YOUR_KEY --agent-name this-host --tenant YOUR_TENANT
 ```
 
 > Review the script before piping it to a shell. You can also download it from a
 > release bundle and run it directly. Run without flags to be prompted for the
-> tenant and agent key.
+> tenant, agent key, and agent name.
 
 ### Options
 
 | Flag | Meaning |
 |------|---------|
-| `--agent-key` | agent auth key (required) |
-| `--tenant` | tenant name; derives `<tenant>-grpc.<domain>:443` and `…-ingest.<domain>` (required unless `--endpoint` is given) |
+| `--agent-key` | agent auth key (required, both modes) |
+| `--agent-name` | name identifying this agent/host; becomes the `agent_name` label on every metric (required, both modes) |
+| `--central-url` | install in **edge** mode: forward OTLP to this central agent (`host:port`, plaintext). Also via `CENTRAL_AGENT_GRPC_URL`. No local VM; `--tenant` not needed |
+| `--tenant` | tenant name; derives `<tenant>-grpc.<domain>:443` and `…-ingest.<domain>` (required for **central** mode unless `--endpoint` is given) |
 | `--domain` | cluster domain (default: `eu11.leansignal.io`) |
 | `--endpoint` | advanced: gRPC control host `host:port`, overrides the derived one |
 | `--dataplane-endpoint` | advanced: remote-write URL, overrides the derived one |
 | `--version vX.Y.Z` | install a specific version (default: latest) |
 | `--no-vm` | don't install the local VictoriaMetrics |
 | `--from-upstream` | pull VictoriaMetrics from upstream instead of the bundle |
+
+### Edge mode
+
+To install a lightweight **edge** agent that forwards OTLP to a central agent
+(no local VM, tracker, demand filter, or control channel), pass the central
+agent's OTLP endpoint:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/LeanSignal/leansignal-agent/main/scripts/install/install.sh \
+  | sudo bash -s -- --agent-key YOUR_KEY --agent-name this-host --central-url central.internal:4317
+```
 
 ## It's already collecting
 

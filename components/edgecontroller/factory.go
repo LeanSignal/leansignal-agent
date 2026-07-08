@@ -58,5 +58,7 @@ func createExtension(
 	cfg component.Config,
 ) (extension.Extension, error) {
 	config := cfg.(*Config)
-	return newEdgeControllerExtension(set.Logger, config), nil
+	ext := newEdgeControllerExtension(set.Logger, config)
+	ext.meterProvider = set.MeterProvider
+	return ext, nil
 }

@@ -39,10 +39,22 @@ spec:
               valueFrom:
                 fieldRef:
                   fieldPath: spec.nodeName
+            # agent_name label source: explicit value, else the node name.
+            - name: LEANSIGNAL_AGENT_NAME
+              {{- if .Values.leansignal.agentName }}
+              value: {{ .Values.leansignal.agentName | quote }}
+              {{- else }}
+              valueFrom:
+                fieldRef:
+                  fieldPath: spec.nodeName
+              {{- end }}
             - name: LEANSIGNAL_ENDPOINT
               value: {{ include "leansignal-agent.controlEndpoint" . | quote }}
             - name: LEANSIGNAL_DATAPLANE_ENDPOINT
               value: {{ include "leansignal-agent.dataplaneEndpoint" . | quote }}
+            # Edge mode only (empty in central mode): the central agent's OTLP endpoint.
+            - name: CENTRAL_AGENT_GRPC_URL
+              value: {{ .Values.leansignal.centralAgentGrpcUrl | quote }}
             - name: LEANSIGNAL_AGENT_KEY
               valueFrom:
                 secretKeyRef:
@@ -63,7 +75,7 @@ spec:
       volumes:
         - name: config
           configMap:
-            name: {{ include "leansignal-agent.fullname" . }}
+            name: {{ include "leansignal-agent.configMapName" . }}
       {{- with .Values.nodeSelector }}
       nodeSelector:
         {{- toYaml . | nindent 8 }}

@@ -18,6 +18,17 @@ leansignal:
   # In the common case this (plus the agent key) is all you set.
   tenant: ""
   domain: "eu11.leansignal.io"
+  # Human-friendly name for this agent; becomes the agent_name label on every
+  # metric. Leave empty to default to the Kubernetes node name (spec.nodeName).
+  agentName: ""
+  # Deployment mode: "central" (default - full pipeline: local VM, tracker, demand
+  # filter, dataplane, control channel) or "edge" (a lightweight OTLP forwarder to
+  # a central agent). Setting centralAgentGrpcUrl implies edge.
+  mode: central
+  # EDGE only: OTLP/gRPC endpoint of the central agent (host:port, plaintext h2c),
+  # e.g. central-agent.othernamespace.svc:4317. In edge mode disable the bundled VM
+  # (victoria-metrics-single.enabled=false, the default) and --tenant is not needed.
+  centralAgentGrpcUrl: ""
   # Advanced: override the derived gRPC control host (host:port, no scheme).
   # Leave empty to derive from tenant/domain.
   endpoint: ""
@@ -29,6 +40,14 @@ leansignal:
     # ...or reference an existing Secret you manage.
     existingSecret: ""
     existingSecretKey: agent-key
+
+# Collector config source. By default the chart renders the config into a
+# ConfigMap from the values above (survives pod redeploys and image upgrades).
+# Set existingConfigMap to the name of a ConfigMap you manage (with a config.yaml
+# key) to own the config out-of-band: the chart then renders no ConfigMap and
+# never overwrites yours, so hand edits persist across `helm upgrade`.
+config:
+  existingConfigMap: ""
 
 # Central, long-retention store that receives only demanded metrics
 # (Prometheus remote-write URL).

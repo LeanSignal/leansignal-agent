@@ -14,6 +14,7 @@ can read your private full-fidelity store without it ever being exposed.
 - [Connecting metrics sources](data-sources.md) — apps (OTLP), Prometheus exporters (node_exporter, …), host & Kubernetes
 - [Configuration](configuration.md) — settings, env vars, pipelines, applying config changes
 - [Host metrics (macOS) & self-monitoring](host-and-self-monitoring.md) — collect CPU/memory/disk, monitor the collector itself
+- [Agent own telemetry](own-telemetry.md) — the self-monitoring metrics the agent exposes (collector + LeanSignal control plane) and what to alert on
 - Install:
   - [Kubernetes](install-kubernetes.md)
   - [Linux](install-linux.md)

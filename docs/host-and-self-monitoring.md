@@ -91,61 +91,21 @@ standalone config is just for a quick isolated check.
 
 ## 3. Monitoring the collector itself
 
-The OpenTelemetry Collector emits its own internal telemetry (throughput, queue
-sizes, dropped data, memory). Expose it as Prometheus metrics via
-`service.telemetry`:
+The agent monitors itself **out of the box** — you don't need to add anything.
+Every shipped config exposes the collector's internal telemetry on
+`127.0.0.1:8888` (level `detailed`), scrapes it with a `prometheus/internal`
+receiver, and feeds it into the `metrics/all` pipeline. So the collector's own
+health (throughput, queue depth, export failures, memory) plus a set of
+LeanSignal-specific metrics (index cache sizes, control-stream connectivity) flow
+to the local VictoriaMetrics automatically — indexed and demand-filtered like any
+other metric.
 
-```yaml
-service:
-  telemetry:
-    metrics:
-      level: detailed
-      readers:
-        - pull:
-            exporter:
-              prometheus:
-                host: 127.0.0.1
-                port: 8888
+Query it the same way as host metrics, e.g.:
+
+```bash
+curl -s 'http://127.0.0.1:8428/api/v1/query?query=leansignal_edgecontroller_connection_up' | jq .
+curl -s 'http://127.0.0.1:8428/api/v1/query?query=otelcol_exporter_send_failed_metric_points_total' | jq .
 ```
 
-Now the collector's own metrics are at `http://127.0.0.1:8888/metrics` — e.g.
-`otelcol_receiver_accepted_metric_points`, `otelcol_exporter_sent_metric_points`,
-`otelcol_exporter_send_failed_metric_points`, `otelcol_processor_batch_batch_send_size`.
-
-### Persisting collector self-metrics
-
-To keep them, scrape that endpoint with a Prometheus receiver and route it to a
-store. Add to the agent config:
-
-```yaml
-receivers:
-  prometheus/collector:
-    config:
-      scrape_configs:
-        - job_name: otelcol
-          scrape_interval: 15s
-          static_configs:
-            - targets: ["127.0.0.1:8888"]
-```
-
-Then add `prometheus/collector` to the `metrics/all` pipeline's `receivers`. In
-the full LeanSignal agent that means the collector's own health flows to the
-local VictoriaMetrics (and is indexed / demand-filtered like any other metric):
-
-```yaml
-service:
-  telemetry:
-    metrics:
-      level: detailed
-      readers:
-        - pull: { exporter: { prometheus: { host: 127.0.0.1, port: 8888 } } }
-  pipelines:
-    metrics/all:
-      receivers: [otlp, hostmetrics, prometheus/collector]
-      processors: [leansignalmetrics_tracker, batch]
-      exporters: [prometheusremotewrite/local, forward/demand_filter]
-```
-
-Useful signals to alert on: `otelcol_exporter_send_failed_metric_points` (export
-failures), `otelcol_exporter_queue_size` vs `otelcol_exporter_queue_capacity`
-(backpressure), and `otelcol_process_memory_rss` (collector memory).
+For the full list of what's exposed, what each metric means, and the top signals
+to alert on, see **[Agent own telemetry](own-telemetry.md)**.

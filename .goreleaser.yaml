@@ -51,6 +51,8 @@ archives:
       - README.md
       - src: config/agent-config.example.yaml
         dst: config
+      - src: config/agent-config.edge.yaml
+        dst: config
       - src: scripts/install/service-templates/*
         dst: service-templates
 

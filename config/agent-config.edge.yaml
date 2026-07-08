@@ -1,0 +1,117 @@
+# =============================================================================
+# LeanSignal Agent - EDGE mode config.
+# =============================================================================
+#
+# An edge agent is a lightweight OTLP forwarder. It collects host metrics, OTLP
+# from local apps, and its own self-telemetry, stamps identity labels, and ships
+# EVERYTHING as OTLP to a central LeanSignal agent. It does NOT run a local
+# VictoriaMetrics, the metric tracker, the demand filter, the dataplane exporter,
+# or the lean-api control channel - the central agent owns all of that.
+#
+# Selected at install time when CENTRAL_AGENT_GRPC_URL is provided (otherwise the
+# installer uses the central config). Data flow:
+#
+#   receivers ─▶ [resourcedetection, resource, batch] ─▶ OTLP ─▶ CENTRAL agent
+#
+# Required environment variables (set by the installer / service unit):
+#   LEANSIGNAL_AGENT_NAME     name identifying this agent/host (agent_name label)
+#   CENTRAL_AGENT_GRPC_URL    OTLP/gRPC endpoint of the central agent, e.g.
+#                             central.internal:4317 (plaintext h2c on a trusted
+#                             internal network)
+#
+# LEANSIGNAL_AGENT_KEY is also set by the installer (required for all agents) but
+# is not referenced here - an edge agent does not authenticate to anything.
+# =============================================================================
+
+extensions:
+  # Liveness/readiness endpoint.
+  health_check:
+    endpoint: 127.0.0.1:13133
+
+receivers:
+  # Accept OTLP from local applications / SDKs on this host.
+  otlp:
+    protocols:
+      grpc:
+        endpoint: 127.0.0.1:4317
+      http:
+        endpoint: 127.0.0.1:4318
+
+  # Collect host system metrics (Linux, macOS, Windows).
+  hostmetrics:
+    collection_interval: 15s
+    scrapers:
+      cpu: {}
+      load: {}
+      memory: {}
+      disk: {}
+      filesystem: {}
+      network: {}
+      paging: {}
+
+  # Scrape the collector's OWN internal telemetry (otelcol_* self-metrics); these
+  # are forwarded to the central agent too, tagged mode=edge.
+  prometheus/internal:
+    config:
+      scrape_configs:
+        - job_name: otelcol-self
+          scrape_interval: 15s
+          static_configs:
+            - targets: [127.0.0.1:8888]
+
+processors:
+  # Stamp host identity (host.name, os.type). override:false so an OTLP client
+  # that already set its own host.name is not clobbered.
+  resourcedetection:
+    detectors: [env, system]
+    system:
+      hostname_sources: [os]
+    override: false
+
+  # Stamp the operator-chosen agent name and the deployment mode. These become
+  # the agent_name / mode labels once the central agent writes them to VM.
+  resource:
+    attributes:
+      - key: agent.name
+        value: "${env:LEANSIGNAL_AGENT_NAME}"
+        action: upsert
+      - key: mode
+        value: edge
+        action: upsert
+
+  batch:
+    send_batch_size: 5000
+    timeout: 1s
+
+exporters:
+  # Forward everything to the central agent's OTLP gRPC receiver. Plaintext h2c
+  # (tls.insecure) - the central OTLP port is kept open on the internal network.
+  otlp/central:
+    endpoint: "${env:CENTRAL_AGENT_GRPC_URL}"
+    tls:
+      insecure: true
+    retry_on_failure:
+      enabled: true
+
+service:
+  extensions: [health_check]
+  pipelines:
+    # Everything: enriched, then forwarded to the central agent as OTLP.
+    metrics/all:
+      receivers: [otlp, hostmetrics, prometheus/internal]
+      processors: [resourcedetection, resource, batch]
+      exporters: [otlp/central]
+
+  telemetry:
+    # Expose the collector's own metrics on 127.0.0.1:8888 so the
+    # prometheus/internal receiver above can scrape them.
+    metrics:
+      level: detailed
+      readers:
+        - pull:
+            exporter:
+              prometheus:
+                host: 127.0.0.1
+                port: 8888
+    logs:
+      level: info

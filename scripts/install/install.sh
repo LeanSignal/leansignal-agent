@@ -19,10 +19,15 @@ REPO="${LEANSIGNAL_REPO:-LeanSignal/leansignal-agent}"
 VERSION="${VERSION:-latest}"
 VM_VERSION_OVERRIDE="${VM_VERSION:-}"
 AGENT_KEY=""
+AGENT_NAME=""
 TENANT=""
 DOMAIN="${LEANSIGNAL_DOMAIN:-eu11.leansignal.io}"
 ENDPOINT=""
 DATAPLANE_ENDPOINT=""
+# When CENTRAL_AGENT_GRPC_URL is set (env or --central-url), the agent installs in
+# EDGE mode: a lightweight OTLP forwarder to that central agent, with no local VM,
+# no tracker/demand filter, and no lean-api control channel. Otherwise CENTRAL mode.
+CENTRAL_URL="${CENTRAL_AGENT_GRPC_URL:-}"
 INSTALL_VM=1
 FROM_UPSTREAM=0
 
@@ -33,10 +38,17 @@ err()  { printf '\033[0;31m[leansignal] ERROR:\033[0m %s\n' "$*" >&2; exit 1; }
 
 usage() {
   cat <<'EOF'
-Usage: install.sh --agent-key KEY --tenant NAME [options]
+Usage: install.sh --agent-key KEY --agent-name NAME --tenant NAME [options]
+       install.sh --agent-key KEY --agent-name NAME --central-url HOST:PORT   (edge)
   --agent-key KEY            Agent authentication key (required)
+  --agent-name NAME          Human-friendly name for this agent/host; becomes the
+                             agent_name label on every metric (required)
+  --central-url HOST:PORT    Install in EDGE mode: forward OTLP to this central
+                             agent (plaintext gRPC). Also settable via the
+                             CENTRAL_AGENT_GRPC_URL env var. When set, no local VM
+                             is installed and --tenant is not required.
   --tenant NAME              Tenant name; derives the gRPC + ingest hosts
-                             (required unless --endpoint is given)
+                             (required for CENTRAL mode unless --endpoint is given)
   --domain DOMAIN            Cluster domain (default: eu11.leansignal.io)
   --endpoint HOST:PORT       Advanced: gRPC control host, overrides the derived
                              <tenant>-grpc.<domain>:443
@@ -53,6 +65,8 @@ EOF
 while [ $# -gt 0 ]; do
   case "$1" in
     --agent-key) AGENT_KEY="$2"; shift 2;;
+    --agent-name) AGENT_NAME="$2"; shift 2;;
+    --central-url) CENTRAL_URL="$2"; shift 2;;
     --tenant) TENANT="$2"; shift 2;;
     --domain) DOMAIN="$2"; shift 2;;
     --endpoint) ENDPOINT="$2"; shift 2;;
@@ -65,6 +79,10 @@ while [ $# -gt 0 ]; do
     *) err "unknown option: $1";;
   esac
 done
+
+# EDGE mode when a central URL is given; it forwards OTLP and runs no local VM.
+if [ -n "$CENTRAL_URL" ]; then MODE=edge; INSTALL_VM=0; else MODE=central; fi
+info "install mode: ${MODE}"
 
 [ "$(id -u)" -eq 0 ] || err "must run as root (use sudo)"
 
@@ -88,7 +106,7 @@ info "platform: ${PLATFORM}/${ARCH}"
 # stdin is the script itself). Non-interactive runs fall through to the errors below.
 prompt_missing() {
   [ -r /dev/tty ] || return 0
-  if [ -z "$ENDPOINT" ] && [ -z "$TENANT" ]; then
+  if [ "$MODE" = central ] && [ -z "$ENDPOINT" ] && [ -z "$TENANT" ]; then
     printf 'Tenant name (control host becomes <tenant>-grpc.%s): ' "$DOMAIN" >/dev/tty
     IFS= read -r TENANT </dev/tty || true
   fi
@@ -97,19 +115,30 @@ prompt_missing() {
     IFS= read -rs AGENT_KEY </dev/tty || true
     printf '\n' >/dev/tty
   fi
+  if [ -z "$AGENT_NAME" ]; then
+    printf 'Agent name (identifies this host; becomes the agent_name label): ' >/dev/tty
+    IFS= read -r AGENT_NAME </dev/tty || true
+  fi
 }
 prompt_missing
 
+# Required for BOTH modes.
 [ -n "$AGENT_KEY" ] || err "agent key is required (--agent-key)"
-# The control + ingest hosts are derived from the tenant unless overridden.
-if [ -z "$ENDPOINT" ] || [ -z "$DATAPLANE_ENDPOINT" ]; then
-  [ -n "$TENANT" ] || err "tenant is required (--tenant), or pass --endpoint and --dataplane-endpoint explicitly"
-  [ -n "$DOMAIN" ] || err "domain is required (--domain)"
+[ -n "$AGENT_NAME" ] || err "agent name is required (--agent-name)"
+
+if [ "$MODE" = central ]; then
+  # The control + ingest hosts are derived from the tenant unless overridden.
+  if [ -z "$ENDPOINT" ] || [ -z "$DATAPLANE_ENDPOINT" ]; then
+    [ -n "$TENANT" ] || err "tenant is required (--tenant), or pass --endpoint and --dataplane-endpoint explicitly"
+    [ -n "$DOMAIN" ] || err "domain is required (--domain)"
+  fi
+  [ -n "$ENDPOINT" ] || ENDPOINT="${TENANT}-grpc.${DOMAIN}:443"
+  [ -n "$DATAPLANE_ENDPOINT" ] || DATAPLANE_ENDPOINT="https://${TENANT}-ingest.${DOMAIN}/api/v1/write"
+  info "control endpoint:  ${ENDPOINT}"
+  info "dataplane endpoint: ${DATAPLANE_ENDPOINT}"
+else
+  info "central agent (OTLP): ${CENTRAL_URL}"
 fi
-[ -n "$ENDPOINT" ] || ENDPOINT="${TENANT}-grpc.${DOMAIN}:443"
-[ -n "$DATAPLANE_ENDPOINT" ] || DATAPLANE_ENDPOINT="https://${TENANT}-ingest.${DOMAIN}/api/v1/write"
-info "control endpoint:  ${ENDPOINT}"
-info "dataplane endpoint: ${DATAPLANE_ENDPOINT}"
 
 # --- resolve version ---------------------------------------------------------
 if [ "$VERSION" = "latest" ]; then
@@ -157,21 +186,33 @@ if [ "$INSTALL_VM" -eq 1 ]; then
   fi
 fi
 
+# pick the config template for this mode (edge ships a separate one in the bundle)
+if [ "$MODE" = edge ]; then SRC_CONFIG="$tmp/config/config-edge.yaml"; else SRC_CONFIG="$tmp/config/config.yaml"; fi
+[ -f "$SRC_CONFIG" ] || err "bundle is missing $(basename "$SRC_CONFIG") (need a newer release for edge mode)"
 # config (do not clobber an existing one)
 if [ -f "$CONF_DIR/config.yaml" ]; then
-  cp "$tmp/config/config.yaml" "$CONF_DIR/config.yaml.new"
+  cp "$SRC_CONFIG" "$CONF_DIR/config.yaml.new"
   info "existing config kept; new template at $CONF_DIR/config.yaml.new"
 else
-  cp "$tmp/config/config.yaml" "$CONF_DIR/config.yaml"
+  cp "$SRC_CONFIG" "$CONF_DIR/config.yaml"
 fi
 
 # env file (used directly by systemd; substituted into the plist on macOS)
 umask 077
-cat > "$CONF_DIR/agent.env" <<EOF
+if [ "$MODE" = edge ]; then
+  cat > "$CONF_DIR/agent.env" <<EOF
+LEANSIGNAL_AGENT_KEY=${AGENT_KEY}
+LEANSIGNAL_AGENT_NAME=${AGENT_NAME}
+CENTRAL_AGENT_GRPC_URL=${CENTRAL_URL}
+EOF
+else
+  cat > "$CONF_DIR/agent.env" <<EOF
 LEANSIGNAL_ENDPOINT=${ENDPOINT}
 LEANSIGNAL_AGENT_KEY=${AGENT_KEY}
+LEANSIGNAL_AGENT_NAME=${AGENT_NAME}
 LEANSIGNAL_DATAPLANE_ENDPOINT=${DATAPLANE_ENDPOINT}
 EOF
+fi
 umask 022
 info "wrote $CONF_DIR/agent.env (0600)"
 
@@ -195,7 +236,9 @@ else
   # substitute env values into the agent plist
   sed -e "s|__LEANSIGNAL_ENDPOINT__|${ENDPOINT}|" \
       -e "s|__LEANSIGNAL_AGENT_KEY__|${AGENT_KEY}|" \
+      -e "s|__LEANSIGNAL_AGENT_NAME__|${AGENT_NAME}|" \
       -e "s|__LEANSIGNAL_DATAPLANE_ENDPOINT__|${DATAPLANE_ENDPOINT}|" \
+      -e "s|__CENTRAL_AGENT_GRPC_URL__|${CENTRAL_URL}|" \
       "$tmp/service-templates/com.leansignal.agent.plist" > /Library/LaunchDaemons/com.leansignal.agent.plist
   chmod 600 /Library/LaunchDaemons/com.leansignal.agent.plist
   launchctl unload /Library/LaunchDaemons/com.leansignal.agent.plist 2>/dev/null || true

@@ -8,7 +8,7 @@ daemons. Requires root (the script uses `sudo`). Apple silicon (arm64) and Intel
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/LeanSignal/leansignal-agent/main/scripts/install/install.sh \
-  | sudo bash -s -- --agent-key YOUR_KEY --tenant YOUR_TENANT
+  | sudo bash -s -- --agent-key YOUR_KEY --agent-name this-host --tenant YOUR_TENANT
 ```
 
 The same script handles Linux and macOS; it detects the platform automatically.

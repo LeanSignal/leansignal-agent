@@ -18,8 +18,31 @@ receivers:
         endpoint: 0.0.0.0:4317
       http:
         endpoint: 0.0.0.0:4318
+  # Scrape the collector's OWN internal telemetry (otelcol_* self-metrics)
+  # exposed on the service.telemetry.metrics endpoint below (in-container loopback).
+  prometheus/internal:
+    config:
+      scrape_configs:
+        - job_name: otelcol-self
+          scrape_interval: 15s
+          static_configs:
+            - targets: [127.0.0.1:8888]
 
 processors:
+  resourcedetection:
+    detectors: [env, system]
+    system:
+      hostname_sources: [os]
+    override: false
+  resource:
+    attributes:
+      # insert (not upsert): preserve identity edge agents already stamped.
+      - key: agent.name
+        value: "${env:LEANSIGNAL_AGENT_NAME}"
+        action: insert
+      - key: mode
+        value: central
+        action: insert
   batch:
     send_batch_size: 5000
     timeout: 1s
@@ -30,12 +53,18 @@ processors:
     log_filtered: false
 
 exporters:
+  # resource_to_telemetry_conversion promotes resource attributes (agent.name,
+  # host.name, os.type) to per-series labels (agent_name, host_name, os_type).
   prometheusremotewrite/local:
     endpoint: http://victoriametrics:8428/api/v1/write
     tls:
       insecure: true
+    resource_to_telemetry_conversion:
+      enabled: true
   prometheusremotewrite/dataplane:
     endpoint: "${env:LEANSIGNAL_DATAPLANE_ENDPOINT}"
+    resource_to_telemetry_conversion:
+      enabled: true
 
 connectors:
   forward/demand_filter: {}
@@ -44,13 +73,23 @@ service:
   extensions: [health_check, leansignal_edge_controller]
   pipelines:
     metrics/all:
-      receivers: [otlp]
-      processors: [leansignalmetrics_tracker, batch]
+      receivers: [otlp, prometheus/internal]
+      processors: [resourcedetection, resource, leansignalmetrics_tracker, batch]
       exporters: [prometheusremotewrite/local, forward/demand_filter]
     metrics/filtered:
       receivers: [forward/demand_filter]
       processors: [leansignal_demand_filter, batch]
       exporters: [prometheusremotewrite/dataplane]
   telemetry:
+    # Expose the collector's own metrics on 127.0.0.1:8888 so the
+    # prometheus/internal receiver above can scrape them.
+    metrics:
+      level: detailed
+      readers:
+        - pull:
+            exporter:
+              prometheus:
+                host: 127.0.0.1
+                port: 8888
     logs:
       level: info

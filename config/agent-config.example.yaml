@@ -47,13 +47,15 @@ extensions:
     # diagnostics_dir: /tmp/leansignal-agent
 
 receivers:
-  # Accept OTLP from local applications / SDKs.
+  # Accept OTLP from local applications / SDKs, AND from edge agents forwarding to
+  # this central agent. Bound to 0.0.0.0 (all interfaces) and unauthenticated by
+  # design - keep this host on a trusted/internal network (or firewall :4317/:4318).
   otlp:
     protocols:
       grpc:
-        endpoint: 127.0.0.1:4317
+        endpoint: 0.0.0.0:4317
       http:
-        endpoint: 127.0.0.1:4318
+        endpoint: 0.0.0.0:4318
 
   # Collect host system metrics. These scrapers work on Linux, macOS and Windows.
   # (The `processes` and `process` scrapers are Linux/Windows-only — add them in a
@@ -69,10 +71,44 @@ receivers:
       network: {}
       paging: {}
 
+  # Scrape the collector's OWN internal telemetry (otelcol_* self-metrics)
+  # exposed on the service.telemetry.metrics endpoint below (in-process loopback).
+  # These flow through metrics/all just like any other metric: indexed by the
+  # tracker, written in full to the local VM, and forwarded to the central
+  # dataplane only when demanded.
+  prometheus/internal:
+    config:
+      scrape_configs:
+        - job_name: otelcol-self
+          scrape_interval: 15s
+          static_configs:
+            - targets: [127.0.0.1:8888]
+
 processors:
   batch:
     send_batch_size: 5000
     timeout: 1s
+
+  # Stamp host identity (host.name, os.type). override:false so an OTLP client
+  # that already set its own host.name is not clobbered.
+  resourcedetection:
+    detectors: [env, system]
+    system:
+      hostname_sources: [os]
+    override: false
+
+  # Stamp the operator-chosen agent name. Set at install via --agent-name; the
+  # installer writes LEANSIGNAL_AGENT_NAME into the service environment.
+  resource:
+    attributes:
+      # insert (not upsert): preserve identity that edge agents already stamped on
+      # forwarded data; only set these on this agent's own unlabeled metrics.
+      - key: agent.name
+        value: "${env:LEANSIGNAL_AGENT_NAME}"
+        action: insert
+      - key: mode
+        value: central
+        action: insert
 
   # Builds the metric/timeseries index and broadcasts it to the edge controller
   # extension (which syncs it to LeanSignal). Pass-through: mutates nothing.
@@ -87,10 +123,14 @@ processors:
 
 exporters:
   # LOCAL VictoriaMetrics - full-fidelity, short retention. Receives everything.
+  # resource_to_telemetry_conversion promotes resource attributes (agent.name,
+  # host.name, os.type) to per-series labels (agent_name, host_name, os_type).
   prometheusremotewrite/local:
     endpoint: http://127.0.0.1:8428/api/v1/write
     tls:
       insecure: true
+    resource_to_telemetry_conversion:
+      enabled: true
     retry_on_failure:
       enabled: true
 
@@ -100,6 +140,8 @@ exporters:
     endpoint: "${env:LEANSIGNAL_DATAPLANE_ENDPOINT}"
     headers:
       Authorization: "Bearer ${env:LEANSIGNAL_AGENT_KEY}"
+    resource_to_telemetry_conversion:
+      enabled: true
     retry_on_failure:
       enabled: true
     remote_write_queue:
@@ -117,8 +159,8 @@ service:
   pipelines:
     # Everything: tracked, written to the local VM in full, and forwarded on.
     metrics/all:
-      receivers: [otlp, hostmetrics]
-      processors: [leansignalmetrics_tracker, batch]
+      receivers: [otlp, hostmetrics, prometheus/internal]
+      processors: [resourcedetection, resource, leansignalmetrics_tracker, batch]
       exporters: [prometheusremotewrite/local, forward/demand_filter]
 
     # Only demanded metrics reach the central dataplane.
@@ -128,5 +170,16 @@ service:
       exporters: [prometheusremotewrite/dataplane]
 
   telemetry:
+    # Expose the collector's own metrics on 127.0.0.1:8888 so the
+    # prometheus/internal receiver above can scrape them. `detailed` adds the
+    # gRPC/HTTP client+server latency histograms on top of the normal counters.
+    metrics:
+      level: detailed
+      readers:
+        - pull:
+            exporter:
+              prometheus:
+                host: 127.0.0.1
+                port: 8888
     logs:
       level: info

@@ -121,6 +121,7 @@ for p in "${PLATFORMS[@]}"; do
   fi
 
   cp config/agent-config.example.yaml "$stage/config/config.yaml"
+  cp config/agent-config.edge.yaml "$stage/config/config-edge.yaml"
   cp -R scripts/install/service-templates/. "$stage/service-templates/" 2>/dev/null || true
   cp LICENSE NOTICE "$stage/"
   [ -n "$vm_bin" ] || echo "NOTE: VictoriaMetrics binary not bundled for this platform; install with --from-upstream or --no-vm." > "$stage/VM-NOT-INCLUDED.txt"
