@@ -37,6 +37,15 @@ data:
         endpoint: "https://${env:K8S_NODE_NAME}:10250"
         insecure_skip_verify: true
     {{- end }}
+      # Scrape the collector's OWN internal telemetry (otelcol_* self-metrics)
+      # exposed on the service.telemetry.metrics endpoint below (in-pod loopback).
+      prometheus/internal:
+        config:
+          scrape_configs:
+            - job_name: otelcol-self
+              scrape_interval: 15s
+              static_configs:
+                - targets: [127.0.0.1:8888]
 
     processors:
       memory_limiter:
@@ -85,5 +94,16 @@ data:
           processors: [leansignal_demand_filter, batch]
           exporters: [prometheusremotewrite/dataplane]
       telemetry:
+        # Expose the collector's own metrics on 127.0.0.1:8888 so the
+        # prometheus/internal receiver above can scrape them. `detailed` adds the
+        # gRPC/HTTP client+server latency histograms on top of the normal counters.
+        metrics:
+          level: detailed
+          readers:
+            - pull:
+                exporter:
+                  prometheus:
+                    host: 127.0.0.1
+                    port: 8888
         logs:
           level: {{ .Values.logLevel }}
