@@ -1,0 +1,80 @@
+{{- if .Values.ingress.enabled }}
+{{- $fullName := include "leansignal-agent.fullname" . }}
+{{- if .Values.ingress.http.host }}
+---
+# OTLP HTTP receiver (:4318). Plain HTTP backend; nginx terminates TLS.
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: {{ $fullName }}-otlp-http
+  labels:
+    {{- include "leansignal-agent.labels" . | nindent 4 }}
+  annotations:
+    nginx.ingress.kubernetes.io/backend-protocol: "HTTP"
+    {{- with .Values.ingress.annotations }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+spec:
+  ingressClassName: {{ .Values.ingress.className }}
+  rules:
+    - host: {{ .Values.ingress.http.host | quote }}
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ $fullName }}
+                port:
+                  number: {{ .Values.service.otlpHTTPPort }}
+  {{- if .Values.ingress.tls }}
+  tls:
+    - hosts:
+        - {{ .Values.ingress.http.host | quote }}
+      {{- with .Values.ingress.tlsSecretName }}
+      secretName: {{ . }}
+      {{- end }}
+  {{- end }}
+{{- end }}
+{{- if .Values.ingress.grpc.host }}
+---
+# OTLP gRPC receiver (:4317). gRPC is HTTP/2, so nginx needs backend-protocol=GRPC
+# (a per-Ingress setting, hence its own host, separate from the HTTP ingress). The
+# agent serves plaintext h2c on 4317; nginx terminates TLS on 443.
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: {{ $fullName }}-otlp-grpc
+  labels:
+    {{- include "leansignal-agent.labels" . | nindent 4 }}
+  annotations:
+    nginx.ingress.kubernetes.io/backend-protocol: "GRPC"
+    # OTLP/gRPC exporters hold a long-lived connection; don't let the proxy time it out.
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "3600"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "3600"
+    {{- with .Values.ingress.annotations }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+spec:
+  ingressClassName: {{ .Values.ingress.className }}
+  rules:
+    - host: {{ .Values.ingress.grpc.host | quote }}
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ $fullName }}
+                port:
+                  number: {{ .Values.service.otlpGRPCPort }}
+  {{- if .Values.ingress.tls }}
+  tls:
+    - hosts:
+        - {{ .Values.ingress.grpc.host | quote }}
+      {{- with .Values.ingress.tlsSecretName }}
+      secretName: {{ . }}
+      {{- end }}
+  {{- end }}
+{{- end }}
+{{- end }}

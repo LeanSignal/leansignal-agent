@@ -107,6 +107,26 @@ service:
   otlpGRPCPort: 4317
   otlpHTTPPort: 4318
 
+# OTLP ingress. DEFAULT OFF - exposing the agent's OTLP receivers over ingress is
+# NOT a standard use case and, without care, can expose them unauthenticated on the
+# public internet. Enable deliberately, and restrict to a private network (e.g.
+# Tailscale) via annotations. gRPC and HTTP get SEPARATE ingresses (nginx
+# backend-protocol is per-Ingress), each rendered only when its host is set.
+ingress:
+  enabled: false
+  className: nginx
+  # Applied to BOTH ingresses. For Tailscale-only access (nginx + source-range gate):
+  #   nginx.ingress.kubernetes.io/whitelist-source-range: "100.64.0.0/10,10.42.0.0/24"
+  annotations: {}
+  # Declare tls.hosts so nginx serves TLS (its default wildcard cert unless
+  # tlsSecretName is set).
+  tls: true
+  tlsSecretName: ""
+  grpc:
+    host: ""   # e.g. <name>-otlp-grpc.leansignal.io - required to render the gRPC ingress
+  http:
+    host: ""   # e.g. <name>-otlp-http.leansignal.io - required to render the HTTP ingress
+
 podAnnotations: {}
 nodeSelector: {}
 tolerations: []
