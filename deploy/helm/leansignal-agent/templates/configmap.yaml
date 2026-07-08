@@ -52,6 +52,20 @@ data:
         check_interval: 1s
         limit_percentage: 80
         spike_limit_percentage: 20
+      # Stamp host identity (host.name, os.type). override:false so an OTLP client
+      # that already set its own host.name is not clobbered.
+      resourcedetection:
+        detectors: [env, system]
+        system:
+          hostname_sources: [os]
+        override: false
+      # Stamp the operator-chosen agent name (Values.leansignal.agentName, else the
+      # node name) injected as LEANSIGNAL_AGENT_NAME by the Deployment.
+      resource:
+        attributes:
+          - key: agent.name
+            value: "${env:LEANSIGNAL_AGENT_NAME}"
+            action: upsert
       batch:
         send_batch_size: 5000
         timeout: 1s
@@ -62,16 +76,22 @@ data:
         log_filtered: false
 
     exporters:
+      # resource_to_telemetry_conversion promotes resource attributes (agent.name,
+      # host.name, os.type) to per-series labels (agent_name, host_name, os_type).
       prometheusremotewrite/local:
         endpoint: {{ include "leansignal-agent.localVMEndpoint" . | quote }}
         tls:
           insecure: true
+        resource_to_telemetry_conversion:
+          enabled: true
         retry_on_failure:
           enabled: true
       prometheusremotewrite/dataplane:
         endpoint: "${env:LEANSIGNAL_DATAPLANE_ENDPOINT}"
         headers:
           Authorization: "Bearer ${env:LEANSIGNAL_AGENT_KEY}"
+        resource_to_telemetry_conversion:
+          enabled: true
         retry_on_failure:
           enabled: true
         remote_write_queue:
@@ -87,7 +107,7 @@ data:
       pipelines:
         metrics/all:
           receivers: [{{ include "leansignal-agent.metricsReceivers" . }}]
-          processors: [memory_limiter, leansignalmetrics_tracker, batch]
+          processors: [memory_limiter, resourcedetection, resource, leansignalmetrics_tracker, batch]
           exporters: [prometheusremotewrite/local, forward/demand_filter]
         metrics/filtered:
           receivers: [forward/demand_filter]

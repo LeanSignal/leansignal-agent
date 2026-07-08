@@ -78,23 +78,25 @@ helm upgrade --install leansignal-agent \
   --set victoria-metrics-single.enabled=true
 ```
 
+`leansignal.agentName` sets the `agent_name` label (defaults to the node name).
 See [docs/install-kubernetes.md](docs/install-kubernetes.md).
 
 ### Linux / macOS
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/LeanSignal/leansignal-agent/main/scripts/install/install.sh \
-  | sudo bash -s -- --agent-key YOUR_KEY --tenant YOUR_TENANT
+  | sudo bash -s -- --agent-key YOUR_KEY --agent-name this-host --tenant YOUR_TENANT
 ```
 
 Installs the agent + local VictoriaMetrics and registers them as services
-(systemd / launchd). See [docs/install-linux.md](docs/install-linux.md) and
+(systemd / launchd). `--agent-name` labels this host's metrics. See
+[docs/install-linux.md](docs/install-linux.md) and
 [docs/install-macos.md](docs/install-macos.md).
 
 ### Windows (PowerShell, as Administrator)
 
 ```powershell
-.\install.ps1 -AgentKey YOUR_KEY -Tenant YOUR_TENANT
+.\install.ps1 -AgentKey YOUR_KEY -AgentName this-host -Tenant YOUR_TENANT
 ```
 
 See [docs/install-windows.md](docs/install-windows.md).

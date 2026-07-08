@@ -18,6 +18,9 @@ leansignal:
   # In the common case this (plus the agent key) is all you set.
   tenant: ""
   domain: "eu11.leansignal.io"
+  # Human-friendly name for this agent; becomes the agent_name label on every
+  # metric. Leave empty to default to the Kubernetes node name (spec.nodeName).
+  agentName: ""
   # Advanced: override the derived gRPC control host (host:port, no scheme).
   # Leave empty to derive from tenant/domain.
   endpoint: ""

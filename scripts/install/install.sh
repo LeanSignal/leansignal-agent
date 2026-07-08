@@ -19,6 +19,7 @@ REPO="${LEANSIGNAL_REPO:-LeanSignal/leansignal-agent}"
 VERSION="${VERSION:-latest}"
 VM_VERSION_OVERRIDE="${VM_VERSION:-}"
 AGENT_KEY=""
+AGENT_NAME=""
 TENANT=""
 DOMAIN="${LEANSIGNAL_DOMAIN:-eu11.leansignal.io}"
 ENDPOINT=""
@@ -33,8 +34,10 @@ err()  { printf '\033[0;31m[leansignal] ERROR:\033[0m %s\n' "$*" >&2; exit 1; }
 
 usage() {
   cat <<'EOF'
-Usage: install.sh --agent-key KEY --tenant NAME [options]
+Usage: install.sh --agent-key KEY --agent-name NAME --tenant NAME [options]
   --agent-key KEY            Agent authentication key (required)
+  --agent-name NAME          Human-friendly name for this agent/host; becomes the
+                             agent_name label on every metric (required)
   --tenant NAME              Tenant name; derives the gRPC + ingest hosts
                              (required unless --endpoint is given)
   --domain DOMAIN            Cluster domain (default: eu11.leansignal.io)
@@ -53,6 +56,7 @@ EOF
 while [ $# -gt 0 ]; do
   case "$1" in
     --agent-key) AGENT_KEY="$2"; shift 2;;
+    --agent-name) AGENT_NAME="$2"; shift 2;;
     --tenant) TENANT="$2"; shift 2;;
     --domain) DOMAIN="$2"; shift 2;;
     --endpoint) ENDPOINT="$2"; shift 2;;
@@ -97,10 +101,15 @@ prompt_missing() {
     IFS= read -rs AGENT_KEY </dev/tty || true
     printf '\n' >/dev/tty
   fi
+  if [ -z "$AGENT_NAME" ]; then
+    printf 'Agent name (identifies this host; becomes the agent_name label): ' >/dev/tty
+    IFS= read -r AGENT_NAME </dev/tty || true
+  fi
 }
 prompt_missing
 
 [ -n "$AGENT_KEY" ] || err "agent key is required (--agent-key)"
+[ -n "$AGENT_NAME" ] || err "agent name is required (--agent-name)"
 # The control + ingest hosts are derived from the tenant unless overridden.
 if [ -z "$ENDPOINT" ] || [ -z "$DATAPLANE_ENDPOINT" ]; then
   [ -n "$TENANT" ] || err "tenant is required (--tenant), or pass --endpoint and --dataplane-endpoint explicitly"
@@ -170,6 +179,7 @@ umask 077
 cat > "$CONF_DIR/agent.env" <<EOF
 LEANSIGNAL_ENDPOINT=${ENDPOINT}
 LEANSIGNAL_AGENT_KEY=${AGENT_KEY}
+LEANSIGNAL_AGENT_NAME=${AGENT_NAME}
 LEANSIGNAL_DATAPLANE_ENDPOINT=${DATAPLANE_ENDPOINT}
 EOF
 umask 022
@@ -195,6 +205,7 @@ else
   # substitute env values into the agent plist
   sed -e "s|__LEANSIGNAL_ENDPOINT__|${ENDPOINT}|" \
       -e "s|__LEANSIGNAL_AGENT_KEY__|${AGENT_KEY}|" \
+      -e "s|__LEANSIGNAL_AGENT_NAME__|${AGENT_NAME}|" \
       -e "s|__LEANSIGNAL_DATAPLANE_ENDPOINT__|${DATAPLANE_ENDPOINT}|" \
       "$tmp/service-templates/com.leansignal.agent.plist" > /Library/LaunchDaemons/com.leansignal.agent.plist
   chmod 600 /Library/LaunchDaemons/com.leansignal.agent.plist

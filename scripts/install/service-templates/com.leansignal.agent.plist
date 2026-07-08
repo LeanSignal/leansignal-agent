@@ -17,6 +17,8 @@
         <string>__LEANSIGNAL_ENDPOINT__</string>
         <key>LEANSIGNAL_AGENT_KEY</key>
         <string>__LEANSIGNAL_AGENT_KEY__</string>
+        <key>LEANSIGNAL_AGENT_NAME</key>
+        <string>__LEANSIGNAL_AGENT_NAME__</string>
         <key>LEANSIGNAL_DATAPLANE_ENDPOINT</key>
         <string>__LEANSIGNAL_DATAPLANE_ENDPOINT__</string>
     </dict>

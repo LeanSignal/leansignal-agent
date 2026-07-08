@@ -6,10 +6,10 @@ Run from an **elevated** (Administrator) PowerShell. amd64 is supported.
 ## Install
 
 ```powershell
-# Download and run (you only need your agent key + tenant):
+# Download and run (you need your agent key, an agent name, and the tenant):
 $u = "https://raw.githubusercontent.com/LeanSignal/leansignal-agent/main/scripts/install/install.ps1"
 Invoke-WebRequest $u -OutFile install.ps1
-.\install.ps1 -AgentKey YOUR_KEY -Tenant YOUR_TENANT
+.\install.ps1 -AgentKey YOUR_KEY -AgentName this-host -Tenant YOUR_TENANT
 ```
 
 ### Parameters
@@ -17,6 +17,7 @@ Invoke-WebRequest $u -OutFile install.ps1
 | Parameter | Meaning |
 |-----------|---------|
 | `-AgentKey` | agent auth key (required) |
+| `-AgentName` | name identifying this agent/host; becomes the `agent_name` label on every metric (required) |
 | `-Tenant` | tenant name; derives `<tenant>-grpc.<domain>:443` and `…-ingest.<domain>` (required unless `-Endpoint` is given) |
 | `-Domain` | cluster domain (default: `eu11.leansignal.io`) |
 | `-Endpoint` | advanced: gRPC control host `host:port`, overrides the derived one |

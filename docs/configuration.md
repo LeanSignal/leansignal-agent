@@ -11,10 +11,28 @@ equivalent config from its values.
 |---------|----------------|------------|---------|
 | Control-plane URL | `LEANSIGNAL_ENDPOINT` | `leansignal.endpoint` | gRPC target (`host:port`) of the LeanSignal API |
 | Agent key | `LEANSIGNAL_AGENT_KEY` | `leansignal.agentKey.value` / `existingSecret` | per-agent auth (secret) — used both as gRPC metadata and as the dataplane bearer token |
+| Agent name | `LEANSIGNAL_AGENT_NAME` | `leansignal.agentName` (defaults to the node name) | name identifying this agent/host; stamped as the `agent_name` label on every metric (set at install via `--agent-name`) |
 | Dataplane URL | `LEANSIGNAL_DATAPLANE_ENDPOINT` | `dataplane.endpoint` | central remote-write target (vmauth ingest in prod) |
 | Local VM URL | (default `http://127.0.0.1:8428`) | `localVM.writeEndpoint` | local full-fidelity store |
 
 Never hard-code the agent key in the config file — always pass it via env/secret.
+
+## Identity labels
+
+Every metric the agent writes carries source-identity labels, so series from
+different hosts stay distinct in the shared central store:
+
+| Label | Source |
+|-------|--------|
+| `agent_name` | `LEANSIGNAL_AGENT_NAME` (the `resource` processor stamps `agent.name`) |
+| `host_name` | the `resourcedetection` processor (`host.name`) |
+| `os_type` | the `resourcedetection` processor (`os.type`) |
+
+The labels are produced by promoting resource attributes with
+`resource_to_telemetry_conversion` on the remote-write exporters. Self-telemetry
+(`otelcol_*`, `leansignal_edgecontroller_*`) carries them too. On an aggregator
+that receives OTLP from other agents, switch the `resource` processor to
+`action: insert` so incoming agents' names are not overwritten.
 
 ## Edge controller settings
 

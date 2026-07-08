@@ -29,6 +29,16 @@ receivers:
             - targets: [127.0.0.1:8888]
 
 processors:
+  resourcedetection:
+    detectors: [env, system]
+    system:
+      hostname_sources: [os]
+    override: false
+  resource:
+    attributes:
+      - key: agent.name
+        value: "${env:LEANSIGNAL_AGENT_NAME}"
+        action: upsert
   batch:
     send_batch_size: 5000
     timeout: 1s
@@ -39,12 +49,18 @@ processors:
     log_filtered: false
 
 exporters:
+  # resource_to_telemetry_conversion promotes resource attributes (agent.name,
+  # host.name, os.type) to per-series labels (agent_name, host_name, os_type).
   prometheusremotewrite/local:
     endpoint: http://victoriametrics:8428/api/v1/write
     tls:
       insecure: true
+    resource_to_telemetry_conversion:
+      enabled: true
   prometheusremotewrite/dataplane:
     endpoint: "${env:LEANSIGNAL_DATAPLANE_ENDPOINT}"
+    resource_to_telemetry_conversion:
+      enabled: true
 
 connectors:
   forward/demand_filter: {}
@@ -54,7 +70,7 @@ service:
   pipelines:
     metrics/all:
       receivers: [otlp, prometheus/internal]
-      processors: [leansignalmetrics_tracker, batch]
+      processors: [resourcedetection, resource, leansignalmetrics_tracker, batch]
       exporters: [prometheusremotewrite/local, forward/demand_filter]
     metrics/filtered:
       receivers: [forward/demand_filter]

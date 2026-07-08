@@ -39,6 +39,15 @@ spec:
               valueFrom:
                 fieldRef:
                   fieldPath: spec.nodeName
+            # agent_name label source: explicit value, else the node name.
+            - name: LEANSIGNAL_AGENT_NAME
+              {{- if .Values.leansignal.agentName }}
+              value: {{ .Values.leansignal.agentName | quote }}
+              {{- else }}
+              valueFrom:
+                fieldRef:
+                  fieldPath: spec.nodeName
+              {{- end }}
             - name: LEANSIGNAL_ENDPOINT
               value: {{ include "leansignal-agent.controlEndpoint" . | quote }}
             - name: LEANSIGNAL_DATAPLANE_ENDPOINT

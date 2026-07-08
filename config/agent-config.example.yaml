@@ -87,6 +87,22 @@ processors:
     send_batch_size: 5000
     timeout: 1s
 
+  # Stamp host identity (host.name, os.type). override:false so an OTLP client
+  # that already set its own host.name is not clobbered.
+  resourcedetection:
+    detectors: [env, system]
+    system:
+      hostname_sources: [os]
+    override: false
+
+  # Stamp the operator-chosen agent name. Set at install via --agent-name; the
+  # installer writes LEANSIGNAL_AGENT_NAME into the service environment.
+  resource:
+    attributes:
+      - key: agent.name
+        value: "${env:LEANSIGNAL_AGENT_NAME}"
+        action: upsert
+
   # Builds the metric/timeseries index and broadcasts it to the edge controller
   # extension (which syncs it to LeanSignal). Pass-through: mutates nothing.
   leansignalmetrics_tracker:
@@ -100,10 +116,14 @@ processors:
 
 exporters:
   # LOCAL VictoriaMetrics - full-fidelity, short retention. Receives everything.
+  # resource_to_telemetry_conversion promotes resource attributes (agent.name,
+  # host.name, os.type) to per-series labels (agent_name, host_name, os_type).
   prometheusremotewrite/local:
     endpoint: http://127.0.0.1:8428/api/v1/write
     tls:
       insecure: true
+    resource_to_telemetry_conversion:
+      enabled: true
     retry_on_failure:
       enabled: true
 
@@ -113,6 +133,8 @@ exporters:
     endpoint: "${env:LEANSIGNAL_DATAPLANE_ENDPOINT}"
     headers:
       Authorization: "Bearer ${env:LEANSIGNAL_AGENT_KEY}"
+    resource_to_telemetry_conversion:
+      enabled: true
     retry_on_failure:
       enabled: true
     remote_write_queue:
@@ -131,7 +153,7 @@ service:
     # Everything: tracked, written to the local VM in full, and forwarded on.
     metrics/all:
       receivers: [otlp, hostmetrics, prometheus/internal]
-      processors: [leansignalmetrics_tracker, batch]
+      processors: [resourcedetection, resource, leansignalmetrics_tracker, batch]
       exporters: [prometheusremotewrite/local, forward/demand_filter]
 
     # Only demanded metrics reach the central dataplane.

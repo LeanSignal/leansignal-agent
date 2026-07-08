@@ -4,14 +4,15 @@
   VictoriaMetrics and registers them as Windows services.
 
 .EXAMPLE
-  # You only need your agent key + tenant; the gRPC + ingest hosts are derived.
-  # Run from an elevated PowerShell:
-  .\install.ps1 -AgentKey KEY -Tenant TENANT
+  # You need your agent key, an agent name, and the tenant; the gRPC + ingest
+  # hosts are derived. Run from an elevated PowerShell:
+  .\install.ps1 -AgentKey KEY -AgentName NAME -Tenant TENANT
   # Advanced: override with -Endpoint / -DataplaneEndpoint, or -Domain.
 #>
 [CmdletBinding()]
 param(
   [string]$AgentKey,
+  [string]$AgentName,
   [string]$Tenant,
   [string]$Domain = "eu11.leansignal.io",
   [string]$Endpoint,
@@ -39,8 +40,10 @@ if (-not $AgentKey) {
   $AgentKey = [Runtime.InteropServices.Marshal]::PtrToStringAuto(
     [Runtime.InteropServices.Marshal]::SecureStringToBSTR($sec))
 }
+if (-not $AgentName) { $AgentName = Read-Host "Agent name (identifies this host; becomes the agent_name label)" }
 
 if (-not $AgentKey) { Die "agent key is required (-AgentKey)" }
+if (-not $AgentName) { Die "agent name is required (-AgentName)" }
 # The control + ingest hosts are derived from the tenant unless overridden.
 if (((-not $Endpoint) -or (-not $DataplaneEndpoint)) -and (-not $Tenant)) {
   Die "tenant is required (-Tenant), or pass -Endpoint and -DataplaneEndpoint explicitly"
@@ -116,6 +119,7 @@ $svcKey = "HKLM:\SYSTEM\CurrentControlSet\Services\LeanSignalAgent"
 $envLines = @(
   "LEANSIGNAL_ENDPOINT=$Endpoint",
   "LEANSIGNAL_AGENT_KEY=$AgentKey",
+  "LEANSIGNAL_AGENT_NAME=$AgentName",
   "LEANSIGNAL_DATAPLANE_ENDPOINT=$DataplaneEndpoint"
 )
 New-ItemProperty -Path $svcKey -Name Environment -PropertyType MultiString -Value $envLines -Force | Out-Null

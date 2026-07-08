@@ -63,6 +63,19 @@ receivers:
             - targets: [127.0.0.1:8888]
 
 processors:
+  # Stamp host identity (host.name, os.type). override:false so an OTLP client
+  # that already set its own host.name is not clobbered.
+  resourcedetection:
+    detectors: [env, system]
+    system:
+      hostname_sources: [os]
+    override: false
+  # Stamp the operator-chosen agent name (set at install via --agent-name).
+  resource:
+    attributes:
+      - key: agent.name
+        value: "${env:LEANSIGNAL_AGENT_NAME}"
+        action: upsert
   batch:
     send_batch_size: 5000
     timeout: 1s
@@ -74,16 +87,22 @@ processors:
 
 exporters:
   # This host's "vm-ag" - receives everything. Base URL + write path built here.
+  # resource_to_telemetry_conversion promotes resource attributes (agent.name,
+  # host.name, os.type) to per-series labels (agent_name, host_name, os_type).
   prometheusremotewrite/local:
     endpoint: "${env:LEANSIGNAL_LOCAL_VM}/api/v1/write"
     tls:
       insecure: true
+    resource_to_telemetry_conversion:
+      enabled: true
   # Central dataplane via the tenant's vmauth ingest - only the demanded subset.
   # The agent key is the bearer token vmauth authenticates.
   prometheusremotewrite/dataplane:
     endpoint: "${env:LEANSIGNAL_DATAPLANE_ENDPOINT}/api/v1/write"
     headers:
       Authorization: "Bearer ${env:LEANSIGNAL_AGENT_KEY}"
+    resource_to_telemetry_conversion:
+      enabled: true
 
 connectors:
   forward/demand_filter: {}
@@ -93,7 +112,7 @@ service:
   pipelines:
     metrics/all:
       receivers: [otlp, hostmetrics, prometheus/internal]
-      processors: [leansignalmetrics_tracker, batch]
+      processors: [resourcedetection, resource, leansignalmetrics_tracker, batch]
       exporters: [prometheusremotewrite/local, forward/demand_filter]
     metrics/filtered:
       receivers: [forward/demand_filter]
