@@ -17,6 +17,25 @@ equivalent config from its values.
 
 Never hard-code the agent key in the config file — always pass it via env/secret.
 
+## Central & edge modes
+
+An agent runs in one of two modes (see the [README](../README.md#agent-modes-central--edge)):
+
+- **central** (default) — the full pipeline. Set the usual `LEANSIGNAL_*` vars.
+- **edge** — a lightweight OTLP forwarder to a central agent. Selected by setting
+  `CENTRAL_AGENT_GRPC_URL` (host install: `--central-url`; Helm:
+  `leansignal.centralAgentGrpcUrl`). No local VM, tracker, demand filter, or
+  control channel; `LEANSIGNAL_ENDPOINT`/`LEANSIGNAL_DATAPLANE_ENDPOINT`/`--tenant`
+  are not used. `--agent-key` and `--agent-name` are still required for both modes.
+
+| Setting | Env var (host) | Helm value | Purpose |
+|---------|----------------|------------|---------|
+| Central agent OTLP | `CENTRAL_AGENT_GRPC_URL` | `leansignal.centralAgentGrpcUrl` | edge only: OTLP/gRPC endpoint of the central agent (`host:port`, plaintext h2c) |
+
+A central agent's OTLP receiver binds `0.0.0.0` and is **unauthenticated by
+design** so edge agents can reach it — keep it on a trusted/internal network (or
+firewall `:4317`/`:4318`).
+
 ## Identity labels
 
 Every metric the agent writes carries source-identity labels, so series from
@@ -27,12 +46,14 @@ different hosts stay distinct in the shared central store:
 | `agent_name` | `LEANSIGNAL_AGENT_NAME` (the `resource` processor stamps `agent.name`) |
 | `host_name` | the `resourcedetection` processor (`host.name`) |
 | `os_type` | the `resourcedetection` processor (`os.type`) |
+| `mode` | `central` or `edge` (the `resource` processor) |
 
 The labels are produced by promoting resource attributes with
 `resource_to_telemetry_conversion` on the remote-write exporters. Self-telemetry
-(`otelcol_*`, `leansignal_edgecontroller_*`) carries them too. On an aggregator
-that receives OTLP from other agents, switch the `resource` processor to
-`action: insert` so incoming agents' names are not overwritten.
+(`otelcol_*`, `leansignal_edgecontroller_*`) carries them too. A **central** agent
+stamps these with `action: insert` (not `upsert`), so identity that **edge** agents
+already put on forwarded data is **preserved** rather than overwritten — that's how
+`mode=edge` / the edge's `agent_name` survive the hop through the central.
 
 ## Edge controller settings
 

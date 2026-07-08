@@ -6,6 +6,42 @@ All notable changes to this project are documented here. The format is based on
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-07-08
+### Added
+- **Agent self-telemetry, on by default.** Every config now exposes the
+  collector's internal metrics on `127.0.0.1:8888` (`service.telemetry.metrics`,
+  level `detailed`), scrapes them with a `prometheus/internal` receiver, and
+  routes them through the `metrics/all` pipeline — so `otelcol_*` health metrics
+  (throughput, exporter queue depth, send failures, remote-write latency, memory)
+  land in the local VM, are indexed, and are demandable like any other metric. The
+  `leansignal_edge_controller` extension also emits its **own** instruments:
+  `leansignal_edgecontroller_{known,discovered,demand}_timeseries_cache_size`,
+  `_pending_backend_updates`, a `_connection_up` gauge, and
+  `_connection_attempts_total` / `_connection_established_total` counters. New
+  reference: [`docs/own-telemetry.md`](docs/own-telemetry.md).
+- **Per-agent identity labels.** Every metric now carries `agent_name`,
+  `host_name`, and `os_type` labels (via the `resourcedetection` + `resource`
+  processors, promoted with `resource_to_telemetry_conversion`), so series from
+  different hosts stay distinct in the shared central store. The name comes from a
+  new **required** `--agent-name` install flag (`LEANSIGNAL_AGENT_NAME`; Helm
+  `leansignal.agentName`, defaulting to the Kubernetes node name).
+- **Edge / central agent modes.** A new **edge** mode installs a lightweight OTLP
+  **forwarder** — host metrics + OTLP from local apps + self-telemetry, shipped as
+  OTLP to a central agent — with no local VM, tracker, demand filter, or control
+  channel. Selected with `--central-url HOST:PORT` (or `CENTRAL_AGENT_GRPC_URL`;
+  Helm `leansignal.centralAgentGrpcUrl` / `leansignal.mode=edge`). Metrics carry a
+  `mode` = `central`|`edge` label, and central agents **preserve** the identity
+  that edge agents stamp on forwarded data.
+- **Helm: bring-your-own config** via `config.existingConfigMap` — point the chart
+  at a ConfigMap you manage and it renders none of its own, so the config survives
+  `helm upgrade` and can be edited in-cluster.
+
+### Changed
+- **`--agent-name` is now required** for all host and Helm installs.
+- A **central** agent's OTLP receiver now binds `0.0.0.0` (all interfaces) and is
+  unauthenticated, so edge agents can forward to it — keep central agents on a
+  trusted/internal network (or firewall `:4317`/`:4318`).
+
 ## [0.3.0] - 2026-07-07
 ### Added
 - **Agent diagnosis command** (`get_diagnosis`), triggered by an admin through
@@ -71,7 +107,8 @@ All notable changes to this project are documented here. The format is based on
 - GitHub Actions CI + goreleaser release pipeline (cross-platform binaries,
   multi-arch images, VictoriaMetrics mirroring + combined bundles).
 
-[Unreleased]: https://github.com/LeanSignal/leansignal-agent/compare/v0.3.0...HEAD
+[Unreleased]: https://github.com/LeanSignal/leansignal-agent/compare/v0.4.0...HEAD
+[0.4.0]: https://github.com/LeanSignal/leansignal-agent/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/LeanSignal/leansignal-agent/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/LeanSignal/leansignal-agent/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/LeanSignal/leansignal-agent/releases/tag/v0.1.0

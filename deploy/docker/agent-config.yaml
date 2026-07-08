@@ -36,9 +36,13 @@ processors:
     override: false
   resource:
     attributes:
+      # insert (not upsert): preserve identity edge agents already stamped.
       - key: agent.name
         value: "${env:LEANSIGNAL_AGENT_NAME}"
-        action: upsert
+        action: insert
+      - key: mode
+        value: central
+        action: insert
   batch:
     send_batch_size: 5000
     timeout: 1s

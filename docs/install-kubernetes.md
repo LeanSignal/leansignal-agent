@@ -35,6 +35,46 @@ helm upgrade --install leansignal-agent \
 
 There is also a convenience wrapper: [`scripts/install/k8s-install.sh`](../scripts/install/k8s-install.sh).
 
+## Edge mode (forward to a central agent)
+
+An **edge** agent forwards OTLP to a central agent instead of running the full
+pipeline — no local VM, tracker, demand filter, or control channel, so no tenant
+or dataplane is needed. Set the central agent's OTLP endpoint:
+
+```bash
+helm upgrade --install leansignal-agent-edge \
+  oci://ghcr.io/leansignal/charts/leansignal-agent \
+  -n leansignal --create-namespace \
+  --set leansignal.agentKey.value="YOUR_KEY" \
+  --set leansignal.agentName="edge-cluster-1" \
+  --set leansignal.centralAgentGrpcUrl="central-agent.central-ns.svc:4317"
+```
+
+Setting `leansignal.centralAgentGrpcUrl` (or `leansignal.mode=edge`) switches the
+rendered pipeline to the edge forwarder and leaves the bundled VM off. The central
+agent's OTLP Service must be reachable and is unauthenticated by design (keep it
+in-cluster / on a trusted network). The wrapper equivalent is
+`k8s-install.sh --agent-key KEY --agent-name NAME --central-url HOST:PORT`.
+
+## Config persistence & owning the config
+
+The chart renders the collector config into a **ConfigMap** (a standalone object),
+so the config already **survives pod restarts and image/agent upgrades** — it is
+not baked into the pod. A `helm upgrade` only rewrites it if your values change.
+
+To own the config out-of-band so even `helm upgrade` never overwrites it — e.g.
+you hand-edit it in the cluster — point the chart at a ConfigMap you manage
+(mirrors `agentKey.existingSecret`):
+
+```yaml
+config:
+  existingConfigMap: my-agent-config   # must contain a config.yaml key
+```
+
+The chart then renders no ConfigMap and mounts yours instead. (With a managed
+ConfigMap the Deployment's `checksum/config` annotation rolls the pod on config
+changes; with an external one you trigger the rollout yourself.)
+
 ## Using an existing Secret for the agent key
 
 ```yaml

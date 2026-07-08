@@ -21,6 +21,9 @@
         <string>__LEANSIGNAL_AGENT_NAME__</string>
         <key>LEANSIGNAL_DATAPLANE_ENDPOINT</key>
         <string>__LEANSIGNAL_DATAPLANE_ENDPOINT__</string>
+        <!-- Set in EDGE mode; empty in CENTRAL mode. -->
+        <key>CENTRAL_AGENT_GRPC_URL</key>
+        <string>__CENTRAL_AGENT_GRPC_URL__</string>
     </dict>
     <key>RunAtLoad</key>
     <true/>

@@ -13,6 +13,9 @@
 param(
   [string]$AgentKey,
   [string]$AgentName,
+  # EDGE mode when set (or via the CENTRAL_AGENT_GRPC_URL env var): forward OTLP to
+  # this central agent, install no local VM, and require no tenant.
+  [string]$CentralUrl = $env:CENTRAL_AGENT_GRPC_URL,
   [string]$Tenant,
   [string]$Domain = "eu11.leansignal.io",
   [string]$Endpoint,
@@ -33,8 +36,12 @@ if (-not $principal.IsInRole([Security.Principal.WindowsBuiltinRole]::Administra
   Die "must run from an elevated (Administrator) PowerShell"
 }
 
+$mode = if ($CentralUrl) { "edge" } else { "central" }
+if ($mode -eq "edge") { $NoVM = $true }
+Info "install mode: $mode"
+
 # Prompt for what's needed when not supplied as parameters.
-if ((-not $Endpoint) -and (-not $Tenant)) { $Tenant = Read-Host "Tenant name (control host becomes <tenant>-grpc.$Domain)" }
+if (($mode -eq "central") -and (-not $Endpoint) -and (-not $Tenant)) { $Tenant = Read-Host "Tenant name (control host becomes <tenant>-grpc.$Domain)" }
 if (-not $AgentKey) {
   $sec = Read-Host "Agent key / secret token" -AsSecureString
   $AgentKey = [Runtime.InteropServices.Marshal]::PtrToStringAuto(
@@ -44,14 +51,18 @@ if (-not $AgentName) { $AgentName = Read-Host "Agent name (identifies this host;
 
 if (-not $AgentKey) { Die "agent key is required (-AgentKey)" }
 if (-not $AgentName) { Die "agent name is required (-AgentName)" }
-# The control + ingest hosts are derived from the tenant unless overridden.
-if (((-not $Endpoint) -or (-not $DataplaneEndpoint)) -and (-not $Tenant)) {
-  Die "tenant is required (-Tenant), or pass -Endpoint and -DataplaneEndpoint explicitly"
+if ($mode -eq "central") {
+  # The control + ingest hosts are derived from the tenant unless overridden.
+  if (((-not $Endpoint) -or (-not $DataplaneEndpoint)) -and (-not $Tenant)) {
+    Die "tenant is required (-Tenant), or pass -Endpoint and -DataplaneEndpoint explicitly"
+  }
+  if (-not $Endpoint)          { $Endpoint = "${Tenant}-grpc.${Domain}:443" }
+  if (-not $DataplaneEndpoint) { $DataplaneEndpoint = "https://${Tenant}-ingest.${Domain}/api/v1/write" }
+  Info "control endpoint:  $Endpoint"
+  Info "dataplane endpoint: $DataplaneEndpoint"
+} else {
+  Info "central agent (OTLP): $CentralUrl"
 }
-if (-not $Endpoint)          { $Endpoint = "${Tenant}-grpc.${Domain}:443" }
-if (-not $DataplaneEndpoint) { $DataplaneEndpoint = "https://${Tenant}-ingest.${Domain}/api/v1/write" }
-Info "control endpoint:  $Endpoint"
-Info "dataplane endpoint: $DataplaneEndpoint"
 
 $arch = if ([Environment]::Is64BitOperatingSystem) { "amd64" } else { Die "unsupported architecture" }
 
@@ -99,10 +110,12 @@ if ($installVM) {
   else { Info "WARNING: bundle has no VictoriaMetrics binary; skipping VM"; $installVM = $false }
 }
 
-# Config (don't clobber)
+# Config (don't clobber) - edge ships a separate template in the bundle
+$cfgSrc = if ($mode -eq "edge") { Join-Path $tmp "config\config-edge.yaml" } else { Join-Path $tmp "config\config.yaml" }
+if (-not (Test-Path $cfgSrc)) { Die "bundle is missing $(Split-Path $cfgSrc -Leaf) (need a newer release for edge mode)" }
 $cfgDst = Join-Path $confDir "config.yaml"
-if (-not (Test-Path $cfgDst)) { Copy-Item (Join-Path $tmp "config\config.yaml") $cfgDst -Force }
-else { Copy-Item (Join-Path $tmp "config\config.yaml") "$cfgDst.new" -Force; Info "existing config kept; template at $cfgDst.new" }
+if (-not (Test-Path $cfgDst)) { Copy-Item $cfgSrc $cfgDst -Force }
+else { Copy-Item $cfgSrc "$cfgDst.new" -Force; Info "existing config kept; template at $cfgDst.new" }
 
 # Services (sc.exe). Environment is passed to the agent service via its registry Environment value.
 if ($installVM) {
@@ -112,16 +125,28 @@ if ($installVM) {
 }
 
 $agentBin = '"{0}" --config "{1}"' -f (Join-Path $installDir "leansignal-agent.exe"), $cfgDst
-sc.exe create LeanSignalAgent binPath= $agentBin start= auto DisplayName= "LeanSignal Agent" depend= LeanSignalVictoriaMetrics | Out-Null
+if ($installVM) {
+  sc.exe create LeanSignalAgent binPath= $agentBin start= auto DisplayName= "LeanSignal Agent" depend= LeanSignalVictoriaMetrics | Out-Null
+} else {
+  sc.exe create LeanSignalAgent binPath= $agentBin start= auto DisplayName= "LeanSignal Agent" | Out-Null
+}
 
 # Per-service environment via registry (REG_MULTI_SZ Environment value)
 $svcKey = "HKLM:\SYSTEM\CurrentControlSet\Services\LeanSignalAgent"
-$envLines = @(
-  "LEANSIGNAL_ENDPOINT=$Endpoint",
-  "LEANSIGNAL_AGENT_KEY=$AgentKey",
-  "LEANSIGNAL_AGENT_NAME=$AgentName",
-  "LEANSIGNAL_DATAPLANE_ENDPOINT=$DataplaneEndpoint"
-)
+$envLines = if ($mode -eq "edge") {
+  @(
+    "LEANSIGNAL_AGENT_KEY=$AgentKey",
+    "LEANSIGNAL_AGENT_NAME=$AgentName",
+    "CENTRAL_AGENT_GRPC_URL=$CentralUrl"
+  )
+} else {
+  @(
+    "LEANSIGNAL_ENDPOINT=$Endpoint",
+    "LEANSIGNAL_AGENT_KEY=$AgentKey",
+    "LEANSIGNAL_AGENT_NAME=$AgentName",
+    "LEANSIGNAL_DATAPLANE_ENDPOINT=$DataplaneEndpoint"
+  )
+}
 New-ItemProperty -Path $svcKey -Name Environment -PropertyType MultiString -Value $envLines -Force | Out-Null
 
 sc.exe start LeanSignalAgent | Out-Null

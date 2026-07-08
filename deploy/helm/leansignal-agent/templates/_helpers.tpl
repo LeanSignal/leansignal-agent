@@ -48,6 +48,26 @@ app.kubernetes.io/instance: {{ .Release.Name }}
 {{- end -}}
 {{- end -}}
 
+{{/* Deployment mode: "edge" when leansignal.mode=edge or a central URL is set,
+     else "central". Edge is a lightweight OTLP forwarder to a central agent. */}}
+{{- define "leansignal-agent.mode" -}}
+{{- if or (eq .Values.leansignal.mode "edge") .Values.leansignal.centralAgentGrpcUrl -}}
+edge
+{{- else -}}
+central
+{{- end -}}
+{{- end -}}
+
+{{/* ConfigMap the agent mounts: an operator-managed one (survives helm upgrades)
+     if config.existingConfigMap is set, else the chart-rendered ConfigMap. */}}
+{{- define "leansignal-agent.configMapName" -}}
+{{- if .Values.config.existingConfigMap -}}
+{{- .Values.config.existingConfigMap -}}
+{{- else -}}
+{{- include "leansignal-agent.fullname" . -}}
+{{- end -}}
+{{- end -}}
+
 {{/* Comma-separated list of enabled receivers for the metrics/all pipeline.
      prometheus/internal (the collector's own self-metrics) is always included. */}}
 {{- define "leansignal-agent.metricsReceivers" -}}

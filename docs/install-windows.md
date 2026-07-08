@@ -16,9 +16,10 @@ Invoke-WebRequest $u -OutFile install.ps1
 
 | Parameter | Meaning |
 |-----------|---------|
-| `-AgentKey` | agent auth key (required) |
-| `-AgentName` | name identifying this agent/host; becomes the `agent_name` label on every metric (required) |
-| `-Tenant` | tenant name; derives `<tenant>-grpc.<domain>:443` and `…-ingest.<domain>` (required unless `-Endpoint` is given) |
+| `-AgentKey` | agent auth key (required, both modes) |
+| `-AgentName` | name identifying this agent/host; becomes the `agent_name` label on every metric (required, both modes) |
+| `-CentralUrl` | install in **edge** mode: forward OTLP to this central agent (`host:port`, plaintext). Also via `CENTRAL_AGENT_GRPC_URL`. No local VM; `-Tenant` not needed |
+| `-Tenant` | tenant name; derives `<tenant>-grpc.<domain>:443` and `…-ingest.<domain>` (required for **central** mode unless `-Endpoint` is given) |
 | `-Domain` | cluster domain (default: `eu11.leansignal.io`) |
 | `-Endpoint` | advanced: gRPC control host `host:port`, overrides the derived one |
 | `-DataplaneEndpoint` | advanced: remote-write URL, overrides the derived one |

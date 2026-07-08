@@ -73,9 +73,14 @@ processors:
   # Stamp the operator-chosen agent name (set at install via --agent-name).
   resource:
     attributes:
+      # insert (not upsert): preserve identity that edge agents already stamped on
+      # forwarded data; only set these on this agent's own unlabeled metrics.
       - key: agent.name
         value: "${env:LEANSIGNAL_AGENT_NAME}"
-        action: upsert
+        action: insert
+      - key: mode
+        value: central
+        action: insert
   batch:
     send_batch_size: 5000
     timeout: 1s

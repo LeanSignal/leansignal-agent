@@ -52,6 +52,9 @@ spec:
               value: {{ include "leansignal-agent.controlEndpoint" . | quote }}
             - name: LEANSIGNAL_DATAPLANE_ENDPOINT
               value: {{ include "leansignal-agent.dataplaneEndpoint" . | quote }}
+            # Edge mode only (empty in central mode): the central agent's OTLP endpoint.
+            - name: CENTRAL_AGENT_GRPC_URL
+              value: {{ .Values.leansignal.centralAgentGrpcUrl | quote }}
             - name: LEANSIGNAL_AGENT_KEY
               valueFrom:
                 secretKeyRef:
@@ -72,7 +75,7 @@ spec:
       volumes:
         - name: config
           configMap:
-            name: {{ include "leansignal-agent.fullname" . }}
+            name: {{ include "leansignal-agent.configMapName" . }}
       {{- with .Values.nodeSelector }}
       nodeSelector:
         {{- toYaml . | nindent 8 }}

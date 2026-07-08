@@ -21,15 +21,27 @@ curl -fsSL https://raw.githubusercontent.com/LeanSignal/leansignal-agent/main/sc
 
 | Flag | Meaning |
 |------|---------|
-| `--agent-key` | agent auth key (required) |
-| `--agent-name` | name identifying this agent/host; becomes the `agent_name` label on every metric (required) |
-| `--tenant` | tenant name; derives `<tenant>-grpc.<domain>:443` and `…-ingest.<domain>` (required unless `--endpoint` is given) |
+| `--agent-key` | agent auth key (required, both modes) |
+| `--agent-name` | name identifying this agent/host; becomes the `agent_name` label on every metric (required, both modes) |
+| `--central-url` | install in **edge** mode: forward OTLP to this central agent (`host:port`, plaintext). Also via `CENTRAL_AGENT_GRPC_URL`. No local VM; `--tenant` not needed |
+| `--tenant` | tenant name; derives `<tenant>-grpc.<domain>:443` and `…-ingest.<domain>` (required for **central** mode unless `--endpoint` is given) |
 | `--domain` | cluster domain (default: `eu11.leansignal.io`) |
 | `--endpoint` | advanced: gRPC control host `host:port`, overrides the derived one |
 | `--dataplane-endpoint` | advanced: remote-write URL, overrides the derived one |
 | `--version vX.Y.Z` | install a specific version (default: latest) |
 | `--no-vm` | don't install the local VictoriaMetrics |
 | `--from-upstream` | pull VictoriaMetrics from upstream instead of the bundle |
+
+### Edge mode
+
+To install a lightweight **edge** agent that forwards OTLP to a central agent
+(no local VM, tracker, demand filter, or control channel), pass the central
+agent's OTLP endpoint:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/LeanSignal/leansignal-agent/main/scripts/install/install.sh \
+  | sudo bash -s -- --agent-key YOUR_KEY --agent-name this-host --central-url central.internal:4317
+```
 
 ## It's already collecting
 

@@ -54,6 +54,30 @@ flowchart LR
 
 See [docs/architecture.md](docs/architecture.md) for the full design.
 
+## Agent modes: central & edge
+
+An agent installs in one of two modes:
+
+- **central** (default) — the full agent above: local VictoriaMetrics, tracker,
+  demand filter, dataplane forwarding, and the gRPC control channel.
+- **edge** — a lightweight OTLP **forwarder**. It collects host metrics, OTLP from
+  local apps, and its own self-telemetry, stamps identity labels, and ships
+  everything as OTLP to a **central** agent. No local VM, tracker, demand filter,
+  or control channel. Selected by giving the central agent's OTLP endpoint at
+  install (`--central-url HOST:PORT` or `CENTRAL_AGENT_GRPC_URL`).
+
+```
+   Host A (edge)  ─┐
+   Host B (edge)  ─┼─ OTLP ─▶  Host C (central) ─▶ local VM + demanded → dataplane
+   Host C (central)┘
+```
+
+This fans many edge agents across networks into one central aggregation point.
+Every metric carries `agent_name`, `host_name`, `os_type`, and `mode` (`edge`/
+`central`) labels, so each source stays distinct in the shared store. The central
+agent's OTLP receiver is open and unauthenticated by design — keep it on a
+trusted/internal network. See [docs/configuration.md](docs/configuration.md).
+
 ## Quick start
 
 > **Managing an install** — how to check service **status**, **start/stop/restart**
