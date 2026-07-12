@@ -6,6 +6,10 @@ All notable changes to this project are documented here. The format is based on
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-07-12
+### Added
+Report the agent version to the LeanAPI backend
+
 ## [0.4.0] - 2026-07-08
 ### Added
 - **Agent self-telemetry, on by default.** Every config now exposes the
