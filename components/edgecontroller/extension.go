@@ -38,7 +38,7 @@ import (
 
 // agentVersion is reported to the backend in the Hello message.
 // TODO: wire to build info.
-const agentVersion = "1.0.0"
+const agentVersion = "0.5.0"
 
 // maxMessageBytes bounds a single control message (index batches can be large).
 const maxMessageBytes = 16 * 1024 * 1024
