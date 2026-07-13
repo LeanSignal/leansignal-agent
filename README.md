@@ -18,7 +18,22 @@ read your full-fidelity local store without that store ever being exposed.
 It runs on Kubernetes, Linux, macOS, and Windows, and is released under the
 **Apache 2.0** license.
 
+## The Value Cycle
+
+The agent is the edge half of LeanSignal's demand-driven **Value Cycle**. It
+sees everything your workloads emit and keeps it at full fidelity locally, but
+its filter forwards **nothing by default** — only the metrics a declared
+**demand** asks for ever leave your network. Central cost follows value, not
+volume, and the agent is the component that enforces it:
+
+<p align="center">
+  <img src="docs/assets/value-cycle.svg" alt="The Observability Value Cycle — the agent (this repository) filters at the edge; demands drive what is stored centrally" width="860">
+</p>
+
 ## How it works
+
+Inside the agent, two metrics pipelines implement the cycle — one writes
+everything to the local store, the other forwards the demanded subset:
 
 ```mermaid
 flowchart LR
@@ -126,6 +141,9 @@ Installs the agent + local VictoriaMetrics and registers them as services
 See [docs/install-windows.md](docs/install-windows.md).
 
 ### Docker (trial)
+
+The fastest way to try the agent against a tenant — runs the agent and a local
+VictoriaMetrics as containers:
 
 ```bash
 export LEANSIGNAL_ENDPOINT=... LEANSIGNAL_AGENT_KEY=... LEANSIGNAL_DATAPLANE_ENDPOINT=...
