@@ -1,0 +1,135 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 936 368" role="img" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" aria-label="The Observability Value Cycle. Your workloads send all telemetry to the LeanSignal Agent (this repository), whose filter forwards nothing by default; only the demanded subset reaches LeanSignal's store, at a cost of one to two dollars out of five. The store serves dashboards and alerts to you. You define the demands that configure the agent's filter and drive what is stored.">
+<style>
+  .vc-bg { fill: #ffffff; stroke: #d0d7de; stroke-width: 1; }
+  .vc-hub { fill: rgba(75,131,225,0.06); stroke: rgba(47,111,224,0.45); stroke-width: 1.4; }
+  .vc-hub-agent { fill: rgba(75,131,225,0.10); stroke: #2f6fe0; stroke-width: 2; }
+  .vc-inset { fill: #f6f8fa; stroke: rgba(47,111,224,0.45); stroke-width: 1.1; }
+  .vc-chip { fill: rgba(217,119,6,0.10); stroke: rgba(217,119,6,0.5); stroke-width: 1.1; }
+  .vc-badge { fill: rgba(75,131,225,0.12); stroke: #4b83e1; stroke-width: 1; }
+  .vc-badge-txt { fill: #2f6fe0; font-weight: 600; letter-spacing: 0.08em; }
+  .vc-title { fill: #1f2328; font-weight: 600; }
+  .vc-sub { fill: #59636e; }
+  .vc-grn { fill: #16a34a; }
+  .vc-bold { font-weight: 600; }
+  .vc-dim { fill: #6e7781; opacity: 0.35; }
+  .vc-ico { fill: none; stroke-linecap: round; stroke-linejoin: round; }
+  .vc-ico-fg { stroke: #1f2328; }
+  .vc-ico-primary { stroke: #2f6fe0; }
+  .vc-line-tele { fill: none; stroke: #4b83e1; stroke-width: 1.4; opacity: 0.5; }
+  .vc-line-demand { fill: none; stroke: #d97706; stroke-width: 1.4; opacity: 0.55; stroke-dasharray: 5 5; }
+  .vc-line-drives { fill: none; stroke: #16a34a; stroke-width: 1.6; opacity: 0.75; }
+  .vc-dot-tele { fill: #2f6fe0; }
+  .vc-dot-demand { fill: #d97706; }
+  .vc-cost-flicker { animation: vc-cost-flicker 4.2s steps(1) infinite; }
+  @keyframes vc-cost-flicker {
+    0%, 32% { opacity: 0.22; }
+    33%, 65% { opacity: 1; }
+    66%, 100% { opacity: 0.22; }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .vc-dot-tele, .vc-dot-demand { display: none; }
+    .vc-cost-flicker { animation: none; opacity: 0.55; }
+  }
+</style>
+
+<defs>
+  <marker id="vc-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="5" markerHeight="5" orient="auto">
+    <path d="M0,0 L10,5 L0,10 z" fill="#16a34a" opacity="0.75"/>
+  </marker>
+</defs>
+
+<!-- self-drawn card background so the diagram is legible regardless of page theme -->
+<rect x="0.5" y="0.5" width="935" height="367" rx="14" class="vc-bg"/>
+
+<text x="468" y="30" class="vc-title" font-size="19" text-anchor="middle">The Observability <tspan class="vc-grn">Value Cycle</tspan></text>
+
+  <path id="vcp-t1" d="M154,190 L178,192" class="vc-line-tele"/>
+  <path id="vcp-t2" d="M320,196 C352,196 358,248 374,248" class="vc-line-tele"/>
+  <path id="vcp-t3" d="M614,224 C636,224 636,145 656,145" class="vc-line-tele"/>
+  <path id="vcp-t4" d="M614,268 C636,268 636,241 656,241" class="vc-line-tele"/>
+  <path id="vcp-u1" d="M814,145 C846,150 854,160 866,168" class="vc-line-tele"/>
+  <path id="vcp-u2" d="M814,241 C846,236 854,196 866,184" class="vc-line-tele"/>
+  <path id="vcp-dr" d="M494,176 L494,200" class="vc-line-drives" marker-end="url(#vc-arrow)"/>
+  <path id="vcp-d1" d="M880,150 C820,70 672,66 614,135" class="vc-line-demand"/>
+  <path id="vcp-d2" d="M374,150 C346,156 324,172 320,190" class="vc-line-demand"/>
+
+<rect x="16" y="150" width="138" height="80" rx="12" class="vc-hub"/>
+<text x="85" y="184" class="vc-title" font-size="18" text-anchor="middle">Workloads</text>
+<text x="85" y="204" class="vc-sub" font-size="14" text-anchor="middle">apps &amp; services</text>
+
+<!-- Agent — highlighted: it is what this repository ships -->
+<rect x="203" y="98" width="108" height="20" rx="10" class="vc-badge"/>
+<text x="257" y="112" class="vc-badge-txt" font-size="11" text-anchor="middle">THIS REPO</text>
+<rect x="182" y="124" width="150" height="128" rx="12" class="vc-hub-agent"/>
+<text x="257" y="147" class="vc-title" font-size="18" text-anchor="middle">Agent</text>
+<rect x="188" y="158" width="138" height="80" rx="8" class="vc-inset"/>
+<g transform="translate(248.5 165.5) scale(0.7083)" class="vc-ico vc-ico-primary" stroke-width="2">
+  <path d="M22 3H2l8 9.46V19l4 2v-8.54L22 3z"/>
+</g>
+<text x="257" y="200" class="vc-sub" font-size="14" text-anchor="middle">Filter</text>
+<text x="257" y="216" class="vc-grn" font-size="14" text-anchor="middle">forward NOTHING</text>
+<text x="257" y="230" class="vc-grn" font-size="14" text-anchor="middle">by default</text>
+
+<rect x="360" y="52" width="268" height="276" rx="12" class="vc-hub"/>
+<text x="494" y="82" class="vc-title" font-size="18" text-anchor="middle">LeanSignal</text>
+<text x="494" y="101" class="vc-sub" font-size="14" text-anchor="middle">Demand-Driven Observability</text>
+
+<rect x="374" y="116" width="240" height="58" rx="8" class="vc-chip"/>
+<text x="494" y="139" class="vc-title" font-size="18" text-anchor="middle">Demands</text>
+<text x="494" y="160" class="vc-grn" font-size="14" text-anchor="middle">What brings value?</text>
+<text x="504" y="193" class="vc-grn vc-bold" font-size="14">drives</text>
+
+<rect x="374" y="200" width="240" height="108" rx="8" class="vc-inset"/>
+<text x="456" y="226" font-size="18" font-weight="700" text-anchor="middle" class="vc-grn">$</text>
+<text x="475" y="226" font-size="18" font-weight="700" text-anchor="middle" class="vc-grn vc-cost-flicker">$</text>
+<text x="494" y="226" font-size="18" font-weight="700" text-anchor="middle" class="vc-dim">$</text>
+<text x="513" y="226" font-size="18" font-weight="700" text-anchor="middle" class="vc-dim">$</text>
+<text x="532" y="226" font-size="18" font-weight="700" text-anchor="middle" class="vc-dim">$</text>
+<g transform="translate(482 239)" class="vc-ico vc-ico-primary" stroke-width="2">
+  <ellipse cx="12" cy="5" rx="9" ry="3"/>
+  <path d="M3 5V19A9 3 0 0 0 21 19V5"/>
+  <path d="M3 12A9 3 0 0 0 21 12"/>
+</g>
+<text x="494" y="285" class="vc-title" font-size="18" text-anchor="middle">Store</text>
+<text x="494" y="301" class="vc-sub" font-size="14" text-anchor="middle"><tspan class="vc-grn">valuable</tspan> telemetry</text>
+
+<rect x="656" y="110" width="158" height="70" rx="12" class="vc-hub"/>
+<text x="735" y="139" class="vc-title" font-size="18" text-anchor="middle">Dashboards</text>
+<text x="735" y="159" class="vc-grn" font-size="14" text-anchor="middle">fast queries</text>
+<rect x="656" y="206" width="158" height="70" rx="12" class="vc-hub"/>
+<text x="735" y="248" class="vc-title" font-size="18" text-anchor="middle">Alerts</text>
+
+<g transform="translate(849.5 131.5) scale(3.2083)" class="vc-ico vc-ico-fg" stroke-width="0.6">
+  <circle cx="12" cy="4.6" r="3"/><line x1="12" y1="1.6" x2="12" y2="21.8"/>
+  <path d="M9.1 4.2 C 8.7 2.3 10.2 1.2 11.95 1.6"/><path d="M9.5 2.9 C 10.1 2.4 11 2.2 11.9 2.4"/>
+  <circle cx="10.4" cy="4.5" r="0.62" fill="currentColor" stroke="none"/><path d="M9.9 6 Q 10.9 6.6 11.8 6.1"/>
+  <rect x="12.75" y="3.7" width="1.5" height="1.5"/><line x1="14.5" y1="2.6" x2="15.7" y2="1.2"/>
+  <circle cx="15.95" cy="0.95" r="0.62" fill="currentColor" stroke="none"/><line x1="12.3" y1="6" x2="13.9" y2="6"/>
+  <circle cx="13.6" cy="12.6" r="0.42" fill="currentColor" stroke="none"/>
+  <line x1="9" y1="10" x2="15" y2="10"/><line x1="9.8" y1="15.8" x2="14.2" y2="15.8"/>
+  <path d="M9 10 C 7.3 11.9 7 14 7.6 15.7"/><circle cx="7.5" cy="16.1" r="0.6"/>
+  <path d="M10.6 15.8 C 10 18.4 9.9 20.4 10.2 22"/>
+  <path d="M15 10 L 16.9 12 L 16.9 14.5"/><rect x="16" y="14.5" width="1.9" height="1.9"/>
+  <path d="M13.4 15.8 L 13.6 22"/><rect x="12.95" y="18.4" width="1.3" height="1.3"/>
+</g>
+
+  <circle r="2.7" class="vc-dot-tele"><animateMotion dur="1.59s" begin="-1.31s" repeatCount="indefinite"><mpath href="#vcp-t1"/></animateMotion></circle>
+  <circle r="2.7" class="vc-dot-tele"><animateMotion dur="1.56s" begin="-1.37s" repeatCount="indefinite"><mpath href="#vcp-t1"/></animateMotion></circle>
+  <circle r="2.7" class="vc-dot-tele"><animateMotion dur="1.36s" begin="-0.58s" repeatCount="indefinite"><mpath href="#vcp-t1"/></animateMotion></circle>
+  <circle r="2.7" class="vc-dot-tele"><animateMotion dur="1.44s" begin="-0.16s" repeatCount="indefinite"><mpath href="#vcp-t1"/></animateMotion></circle>
+  <circle r="2.7" class="vc-dot-tele"><animateMotion dur="1.58s" begin="-1.10s" repeatCount="indefinite"><mpath href="#vcp-t1"/></animateMotion></circle>
+  <circle r="2.7" class="vc-dot-tele"><animateMotion dur="1.54s" begin="-0.28s" repeatCount="indefinite"><mpath href="#vcp-t1"/></animateMotion></circle>
+  <circle r="2.7" class="vc-dot-tele"><animateMotion dur="2.78s" begin="-0.74s" repeatCount="indefinite"><mpath href="#vcp-t2"/></animateMotion></circle>
+  <circle r="2.7" class="vc-dot-tele"><animateMotion dur="3.55s" begin="-1.90s" repeatCount="indefinite"><mpath href="#vcp-t3"/></animateMotion></circle>
+  <circle r="2.7" class="vc-dot-tele"><animateMotion dur="3.54s" begin="-1.40s" repeatCount="indefinite"><mpath href="#vcp-t3"/></animateMotion></circle>
+  <circle r="2.7" class="vc-dot-tele"><animateMotion dur="2.51s" begin="-0.56s" repeatCount="indefinite"><mpath href="#vcp-t4"/></animateMotion></circle>
+  <circle r="2.7" class="vc-dot-tele"><animateMotion dur="3.18s" begin="-0.88s" repeatCount="indefinite"><mpath href="#vcp-u1"/></animateMotion></circle>
+  <circle r="2.7" class="vc-dot-tele"><animateMotion dur="3.34s" begin="-2.32s" repeatCount="indefinite"><mpath href="#vcp-u2"/></animateMotion></circle>
+  <circle r="3" class="vc-dot-demand"><animateMotion dur="4.46s" begin="-0.98s" repeatCount="indefinite"><mpath href="#vcp-d1"/></animateMotion></circle>
+  <circle r="3" class="vc-dot-demand"><animateMotion dur="2.47s" begin="-0.60s" repeatCount="indefinite"><mpath href="#vcp-d2"/></animateMotion></circle>
+
+<circle cx="348" cy="350" r="4" fill="#4b83e1"/>
+<text x="358" y="355" class="vc-sub" font-size="13">Telemetry Data Flow</text>
+<circle cx="512" cy="350" r="4" fill="#d97706"/>
+<text x="522" y="355" class="vc-sub" font-size="13">Control Flow</text>
+</svg>
