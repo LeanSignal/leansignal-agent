@@ -1,4 +1,4 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 936 352" role="img" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" aria-label="The Observability Value Cycle. Your workloads send all telemetry to the LeanSignal Agent (this repository), whose filter forwards nothing by default; only the demanded subset reaches LeanSignal's store, at a cost of one to two dollars out of five. The store serves dashboards and alerts to you. You define the demands that configure the agent's filter and drive what is stored.">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 936 368" role="img" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" aria-label="The Observability Value Cycle. Your workloads send all telemetry to the LeanSignal Agent (this repository), whose filter forwards nothing by default; only the demanded subset reaches LeanSignal's store, at a cost of one to two dollars out of five. The store serves dashboards and alerts to you. You define the demands that configure the agent's filter and drive what is stored.">
 <style>
   .vc-bg { fill: #0f1117; stroke: rgba(255,255,255,0.12); stroke-width: 1; }
   .vc-hub { fill: rgba(75,131,225,0.08); stroke: rgba(122,166,236,0.5); stroke-width: 1.4; }
@@ -39,7 +39,7 @@
 </defs>
 
 <!-- self-drawn card background so the diagram is legible regardless of page theme -->
-<rect x="0.5" y="0.5" width="935" height="351" rx="14" class="vc-bg"/>
+<rect x="0.5" y="0.5" width="935" height="367" rx="14" class="vc-bg"/>
 
 <text x="468" y="30" class="vc-title" font-size="19" text-anchor="middle">The Observability <tspan class="vc-grn">Value Cycle</tspan></text>
 
@@ -128,8 +128,8 @@
   <circle r="3" class="vc-dot-demand"><animateMotion dur="4.46s" begin="-0.98s" repeatCount="indefinite"><mpath href="#vcp-d1"/></animateMotion></circle>
   <circle r="3" class="vc-dot-demand"><animateMotion dur="2.47s" begin="-0.60s" repeatCount="indefinite"><mpath href="#vcp-d2"/></animateMotion></circle>
 
-<circle cx="348" cy="336" r="4" fill="#4b83e1"/>
-<text x="358" y="341" class="vc-sub" font-size="13">Telemetry Data Flow</text>
-<circle cx="512" cy="336" r="4" fill="#f59e0b"/>
-<text x="522" y="341" class="vc-sub" font-size="13">Control Flow</text>
+<circle cx="348" cy="350" r="4" fill="#4b83e1"/>
+<text x="358" y="355" class="vc-sub" font-size="13">Telemetry Data Flow</text>
+<circle cx="512" cy="350" r="4" fill="#f59e0b"/>
+<text x="522" y="355" class="vc-sub" font-size="13">Control Flow</text>
 </svg>
