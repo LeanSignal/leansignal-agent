@@ -1,25 +1,25 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 936 352" role="img" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" aria-label="The Observability Value Cycle. Your workloads send all telemetry to the LeanSignal Agent (this repository), whose filter forwards nothing by default; only the demanded subset reaches LeanSignal's store, at a cost of one to two dollars out of five. The store serves dashboards and alerts to you. You define the demands that configure the agent's filter and drive what is stored.">
 <style>
-  .vc-bg { fill: #0f1117; stroke: rgba(255,255,255,0.12); stroke-width: 1; }
-  .vc-hub { fill: rgba(75,131,225,0.08); stroke: rgba(122,166,236,0.5); stroke-width: 1.4; }
-  .vc-hub-agent { fill: rgba(75,131,225,0.14); stroke: #7aa6ec; stroke-width: 2; }
-  .vc-inset { fill: #0a0c10; stroke: rgba(122,166,236,0.5); stroke-width: 1.1; }
-  .vc-chip { fill: rgba(245,158,11,0.13); stroke: rgba(245,158,11,0.55); stroke-width: 1.1; }
-  .vc-badge { fill: rgba(75,131,225,0.2); stroke: #4b83e1; stroke-width: 1; }
-  .vc-badge-txt { fill: #a8c4f2; font-weight: 600; letter-spacing: 0.08em; }
-  .vc-title { fill: #e6edf3; font-weight: 600; }
-  .vc-sub { fill: #9198a1; }
-  .vc-grn { fill: #22c55e; }
+  .vc-bg { fill: #ffffff; stroke: #d0d7de; stroke-width: 1; }
+  .vc-hub { fill: rgba(75,131,225,0.06); stroke: rgba(47,111,224,0.45); stroke-width: 1.4; }
+  .vc-hub-agent { fill: rgba(75,131,225,0.10); stroke: #2f6fe0; stroke-width: 2; }
+  .vc-inset { fill: #f6f8fa; stroke: rgba(47,111,224,0.45); stroke-width: 1.1; }
+  .vc-chip { fill: rgba(217,119,6,0.10); stroke: rgba(217,119,6,0.5); stroke-width: 1.1; }
+  .vc-badge { fill: rgba(75,131,225,0.12); stroke: #4b83e1; stroke-width: 1; }
+  .vc-badge-txt { fill: #2f6fe0; font-weight: 600; letter-spacing: 0.08em; }
+  .vc-title { fill: #1f2328; font-weight: 600; }
+  .vc-sub { fill: #59636e; }
+  .vc-grn { fill: #16a34a; }
   .vc-bold { font-weight: 600; }
-  .vc-dim { fill: #9198a1; opacity: 0.28; }
+  .vc-dim { fill: #6e7781; opacity: 0.35; }
   .vc-ico { fill: none; stroke-linecap: round; stroke-linejoin: round; }
-  .vc-ico-fg { stroke: #e6edf3; }
-  .vc-ico-primary { stroke: #7aa6ec; }
-  .vc-line-tele { fill: none; stroke: #4b83e1; stroke-width: 1.4; opacity: 0.34; }
-  .vc-line-demand { fill: none; stroke: #f59e0b; stroke-width: 1.4; opacity: 0.42; stroke-dasharray: 5 5; }
-  .vc-line-drives { fill: none; stroke: #22c55e; stroke-width: 1.6; opacity: 0.75; }
-  .vc-dot-tele { fill: #7aa6ec; }
-  .vc-dot-demand { fill: #f59e0b; }
+  .vc-ico-fg { stroke: #1f2328; }
+  .vc-ico-primary { stroke: #2f6fe0; }
+  .vc-line-tele { fill: none; stroke: #4b83e1; stroke-width: 1.4; opacity: 0.5; }
+  .vc-line-demand { fill: none; stroke: #d97706; stroke-width: 1.4; opacity: 0.55; stroke-dasharray: 5 5; }
+  .vc-line-drives { fill: none; stroke: #16a34a; stroke-width: 1.6; opacity: 0.75; }
+  .vc-dot-tele { fill: #2f6fe0; }
+  .vc-dot-demand { fill: #d97706; }
   .vc-cost-flicker { animation: vc-cost-flicker 4.2s steps(1) infinite; }
   @keyframes vc-cost-flicker {
     0%, 32% { opacity: 0.22; }
@@ -34,11 +34,11 @@
 
 <defs>
   <marker id="vc-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="5" markerHeight="5" orient="auto">
-    <path d="M0,0 L10,5 L0,10 z" fill="#22c55e" opacity="0.75"/>
+    <path d="M0,0 L10,5 L0,10 z" fill="#16a34a" opacity="0.75"/>
   </marker>
 </defs>
 
-<!-- self-drawn dark card so the diagram reads the same on GitHub light and dark -->
+<!-- self-drawn card background so the diagram is legible regardless of page theme -->
 <rect x="0.5" y="0.5" width="935" height="351" rx="14" class="vc-bg"/>
 
 <text x="468" y="30" class="vc-title" font-size="19" text-anchor="middle">The Observability <tspan class="vc-grn">Value Cycle</tspan></text>
@@ -130,6 +130,6 @@
 
 <circle cx="348" cy="336" r="4" fill="#4b83e1"/>
 <text x="358" y="341" class="vc-sub" font-size="13">Telemetry Data Flow</text>
-<circle cx="512" cy="336" r="4" fill="#f59e0b"/>
+<circle cx="512" cy="336" r="4" fill="#d97706"/>
 <text x="522" y="341" class="vc-sub" font-size="13">Control Flow</text>
 </svg>

@@ -18,7 +18,7 @@ read your full-fidelity local store without that store ever being exposed.
 It runs on Kubernetes, Linux, macOS, and Windows, and is released under the
 **Apache 2.0** license.
 
-## The Value Cycle
+## How it works
 
 The agent is the edge half of LeanSignal's demand-driven **Value Cycle**. It
 sees everything your workloads emit and keeps it at full fidelity locally, but
@@ -26,36 +26,10 @@ its filter forwards **nothing by default** — only the metrics a declared
 **demand** asks for ever leave your network. Central cost follows value, not
 volume, and the agent is the component that enforces it:
 
-<p align="center">
-  <img src="docs/assets/value-cycle.svg" alt="The Observability Value Cycle — the agent (this repository) filters at the edge; demands drive what is stored centrally" width="860">
-</p>
-
-## How it works
-
-Inside the agent, two metrics pipelines implement the cycle — one writes
-everything to the local store, the other forwards the demanded subset:
-
-```mermaid
-flowchart LR
-  subgraph agent["Agent — your private network"]
-    R["Receivers: OTLP, host / k8s metrics"] --> T["leansignalmetrics_tracker"]
-    T --> L[("Local VictoriaMetrics<br/>everything")]
-    T --> F["leansignal_demand_filter"]
-    EC["leansignal_edge_controller"]
-    T -.->|index in-process| EC
-    EC -.->|demand list| F
-    EC -.->|runs read-only query| L
-  end
-  subgraph cloud["LeanSignal — public, 443"]
-    API["lean-api"]
-    VM[("Central Dataplane VM<br/>demanded, long retention")]
-    UI["Web UI"]
-  end
-  EC ==>|gRPC control stream: index up, demands down, queries both ways| API
-  F ==>|remote-write demanded subset via vmauth| VM
-  UI -->|edit-mode query| API
-  API -.->|view-mode read| VM
-```
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/assets/value-cycle-dark.svg">
+  <img src="docs/assets/value-cycle-light.svg" alt="The Observability Value Cycle — the agent (this repository) filters at the edge; demands drive what is stored centrally" width="860">
+</picture>
 
 - **Everything** is written to the local VictoriaMetrics next to the agent.
 - The **edge controller** keeps one persistent, outbound gRPC stream to LeanSignal:
