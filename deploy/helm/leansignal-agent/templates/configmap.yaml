@@ -64,15 +64,15 @@ data:
           hostname_sources: [os]
         override: false
       # Stamp the operator-chosen agent name (Values.leansignal.agentName, else the
-      # node name) and the deployment mode. Promoted to the agent_name / mode labels.
+      # node name) and the deployment mode. Promoted to the leansignal_agent_name / leansignal_mode labels.
       # central uses insert (preserve identity edge agents already stamped on
       # forwarded data); edge uses upsert (it is the origin stamping its own).
       resource:
         attributes:
-          - key: agent.name
+          - key: leansignal.agent.name
             value: "${env:LEANSIGNAL_AGENT_NAME}"
             action: {{ if eq $mode "central" }}insert{{ else }}upsert{{ end }}
-          - key: mode
+          - key: leansignal.mode
             value: {{ $mode }}
             action: {{ if eq $mode "central" }}insert{{ else }}upsert{{ end }}
       batch:
@@ -88,8 +88,8 @@ data:
 
     exporters:
     {{- if eq $mode "central" }}
-      # resource_to_telemetry_conversion promotes resource attributes (agent.name,
-      # host.name, os.type, mode) to per-series labels.
+      # resource_to_telemetry_conversion promotes resource attributes
+      # (leansignal.agent.name, host.name, os.type, leansignal.mode) to per-series labels.
       prometheusremotewrite/local:
         endpoint: {{ include "leansignal-agent.localVMEndpoint" . | quote }}
         tls:

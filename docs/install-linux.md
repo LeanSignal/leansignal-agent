@@ -22,7 +22,7 @@ curl -fsSL https://raw.githubusercontent.com/LeanSignal/leansignal-agent/main/sc
 | Flag | Meaning |
 |------|---------|
 | `--agent-key` | agent auth key (required, both modes) |
-| `--agent-name` | name identifying this agent/host; becomes the `agent_name` label on every metric (required, both modes) |
+| `--agent-name` | name identifying this agent/host; becomes the `leansignal_agent_name` label on every metric (required, both modes) |
 | `--central-url` | install in **edge** mode: forward OTLP to this central agent (`host:port`, plaintext). Also via `CENTRAL_AGENT_GRPC_URL`. No local VM; `--tenant` not needed |
 | `--tenant` | tenant name; derives `<tenant>-grpc.<domain>:443` and `…-ingest.<domain>` (required for **central** mode unless `--endpoint` is given) |
 | `--domain` | cluster domain (default: `eu11.leansignal.io`) |

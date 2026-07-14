@@ -186,7 +186,7 @@ self-telemetry loop itself is healthy.
 ## Notes
 
 - **Identity labels:** because self-telemetry flows through `metrics/all`, every
-  series here also carries the `agent_name` / `host_name` / `os_type` labels (see
+  series here also carries the `leansignal_agent_name` / `host_name` / `os_type` labels (see
   [Configuration](configuration.md#identity-labels)) — so the central store can
   attribute each agent's own health.
 - **Naming:** custom edge-controller metrics keep their own name

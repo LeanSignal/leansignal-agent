@@ -43,17 +43,17 @@ different hosts stay distinct in the shared central store:
 
 | Label | Source |
 |-------|--------|
-| `agent_name` | `LEANSIGNAL_AGENT_NAME` (the `resource` processor stamps `agent.name`) |
+| `leansignal_agent_name` | `LEANSIGNAL_AGENT_NAME` (the `resource` processor stamps `leansignal.agent.name`) |
 | `host_name` | the `resourcedetection` processor (`host.name`) |
 | `os_type` | the `resourcedetection` processor (`os.type`) |
-| `mode` | `central` or `edge` (the `resource` processor) |
+| `leansignal_mode` | `central` or `edge` (the `resource` processor) |
 
 The labels are produced by promoting resource attributes with
 `resource_to_telemetry_conversion` on the remote-write exporters. Self-telemetry
 (`otelcol_*`, `leansignal_edgecontroller_*`) carries them too. A **central** agent
 stamps these with `action: insert` (not `upsert`), so identity that **edge** agents
 already put on forwarded data is **preserved** rather than overwritten — that's how
-`mode=edge` / the edge's `agent_name` survive the hop through the central.
+`leansignal_mode=edge` / the edge's `leansignal_agent_name` survive the hop through the central.
 
 ## Edge controller settings
 

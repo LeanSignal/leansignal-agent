@@ -14,7 +14,7 @@
 #   receivers ─▶ [resourcedetection, resource, batch] ─▶ OTLP ─▶ CENTRAL agent
 #
 # Required environment variables (set by the installer / service unit):
-#   LEANSIGNAL_AGENT_NAME     name identifying this agent/host (agent_name label)
+#   LEANSIGNAL_AGENT_NAME     name identifying this agent/host (leansignal_agent_name label)
 #   CENTRAL_AGENT_GRPC_URL    OTLP/gRPC endpoint of the central agent, e.g.
 #                             central.internal:4317 (plaintext h2c on a trusted
 #                             internal network)
@@ -69,13 +69,13 @@ processors:
     override: false
 
   # Stamp the operator-chosen agent name and the deployment mode. These become
-  # the agent_name / mode labels once the central agent writes them to VM.
+  # the leansignal_agent_name / leansignal_mode labels once the central agent writes them to VM.
   resource:
     attributes:
-      - key: agent.name
+      - key: leansignal.agent.name
         value: "${env:LEANSIGNAL_AGENT_NAME}"
         action: upsert
-      - key: mode
+      - key: leansignal.mode
         value: edge
         action: upsert
 
