@@ -103,10 +103,10 @@ processors:
     attributes:
       # insert (not upsert): preserve identity that edge agents already stamped on
       # forwarded data; only set these on this agent's own unlabeled metrics.
-      - key: agent.name
+      - key: leansignal.agent.name
         value: "${env:LEANSIGNAL_AGENT_NAME}"
         action: insert
-      - key: mode
+      - key: leansignal.mode
         value: central
         action: insert
 
@@ -123,8 +123,9 @@ processors:
 
 exporters:
   # LOCAL VictoriaMetrics - full-fidelity, short retention. Receives everything.
-  # resource_to_telemetry_conversion promotes resource attributes (agent.name,
-  # host.name, os.type) to per-series labels (agent_name, host_name, os_type).
+  # resource_to_telemetry_conversion promotes resource attributes
+  # (leansignal.agent.name, host.name, os.type, leansignal.mode) to per-series
+  # labels (leansignal_agent_name, host_name, os_type, leansignal_mode).
   prometheusremotewrite/local:
     endpoint: http://127.0.0.1:8428/api/v1/write
     tls:

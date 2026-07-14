@@ -18,7 +18,7 @@ helm upgrade --install leansignal-agent \
   --set victoria-metrics-single.enabled=true
 ```
 
-`leansignal.agentName` sets the `agent_name` label; leave it unset to default to
+`leansignal.agentName` sets the `leansignal_agent_name` label; leave it unset to default to
 the Kubernetes node name (`spec.nodeName`). The `k8s-install.sh` wrapper requires
 `--agent-name` explicitly.
 

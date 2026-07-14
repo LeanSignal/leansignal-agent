@@ -6,6 +6,23 @@ All notable changes to this project are documented here. The format is based on
 
 ## [Unreleased]
 
+## [0.5.1] - 2026-07-14
+### Fixed
+- **Identity-label collision on the `mode` / `agent_name` labels.** The `resource`
+  processor stamped the source-identity resource attributes as bare `mode` and
+  `agent.name`, which `resource_to_telemetry_conversion` promoted to the generic
+  labels `mode` / `agent_name`. `mode` collides with metrics that carry a native
+  `mode` label — most importantly `node_cpu_seconds_total{mode="idle|user|system|…"}`
+  — and because the agent stamped every series, the collision **overwrote** those
+  native values (e.g. all `node_cpu_seconds_total` series collapsed to
+  `mode="central"`, destroying the per-mode CPU breakdown). The attributes are now
+  namespaced as `leansignal.mode` and `leansignal.agent.name`, promoted to the
+  `leansignal_mode` / `leansignal_agent_name` labels, so they no longer clash with
+  any collected metric.
+
+  **Breaking (labels):** dashboards/queries that referenced the `mode` or
+  `agent_name` labels must migrate to `leansignal_mode` / `leansignal_agent_name`.
+
 ## [0.5.0] - 2026-07-12
 ### Added
 Report the agent version to the LeanAPI backend

@@ -62,8 +62,9 @@ An agent installs in one of two modes:
 ```
 
 This fans many edge agents across networks into one central aggregation point.
-Every metric carries `agent_name`, `host_name`, `os_type`, and `mode` (`edge`/
-`central`) labels, so each source stays distinct in the shared store. The central
+Every metric carries `leansignal_agent_name`, `host_name`, `os_type`, and
+`leansignal_mode` (`edge`/`central`) labels, so each source stays distinct in the
+shared store. The central
 agent's OTLP receiver is open and unauthenticated by design — keep it on a
 trusted/internal network. See [docs/configuration.md](docs/configuration.md).
 
@@ -91,7 +92,7 @@ helm upgrade --install leansignal-agent \
   --set victoria-metrics-single.enabled=true
 ```
 
-`leansignal.agentName` sets the `agent_name` label (defaults to the node name).
+`leansignal.agentName` sets the `leansignal_agent_name` label (defaults to the node name).
 See [docs/install-kubernetes.md](docs/install-kubernetes.md).
 
 ### Linux / macOS

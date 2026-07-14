@@ -37,10 +37,10 @@ processors:
   resource:
     attributes:
       # insert (not upsert): preserve identity edge agents already stamped.
-      - key: agent.name
+      - key: leansignal.agent.name
         value: "${env:LEANSIGNAL_AGENT_NAME}"
         action: insert
-      - key: mode
+      - key: leansignal.mode
         value: central
         action: insert
   batch:
@@ -53,8 +53,9 @@ processors:
     log_filtered: false
 
 exporters:
-  # resource_to_telemetry_conversion promotes resource attributes (agent.name,
-  # host.name, os.type) to per-series labels (agent_name, host_name, os_type).
+  # resource_to_telemetry_conversion promotes resource attributes
+  # (leansignal.agent.name, host.name, os.type, leansignal.mode) to per-series
+  # labels (leansignal_agent_name, host_name, os_type, leansignal_mode).
   prometheusremotewrite/local:
     endpoint: http://victoriametrics:8428/api/v1/write
     tls:
