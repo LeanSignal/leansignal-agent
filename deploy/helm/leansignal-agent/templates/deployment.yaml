@@ -60,6 +60,9 @@ spec:
                 secretKeyRef:
                   name: {{ include "leansignal-agent.agentKeySecretName" . }}
                   key: {{ .Values.leansignal.agentKey.existingSecretKey | default "agent-key" }}
+            {{- with .Values.extraEnv }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
           livenessProbe:
             httpGet: { path: /, port: health }
             initialDelaySeconds: 10
