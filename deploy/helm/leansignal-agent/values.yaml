@@ -74,25 +74,6 @@ receivers:
   kubeletStats:
     enabled: true
 
-# Generic extension points for scraping additional targets without forking the
-# chart. All are raw OTEL Collector YAML rendered verbatim into the config.
-#
-#   extraExtensions        map merged under `extensions:` (their keys are also
-#                          appended to service.extensions so they actually run)
-#   extraReceivers         map merged under `receivers:`
-#   extraMetricsReceivers  receiver IDs (keys of extraReceivers) added to the
-#                          metrics pipeline
-#
-# Example (discover + scrape services with receiver_creator/k8s_observer) lives
-# in the LeanSignal central-agent values (lean-infra).
-extraExtensions: {}
-extraReceivers: {}
-extraMetricsReceivers: []
-
-# Extra environment variables for the agent container (e.g. credentials consumed
-# by extraReceivers via ${env:...}). Standard core/v1 EnvVar entries.
-extraEnv: []
-
 # Bundled local VictoriaMetrics (upstream victoria-metrics-single chart).
 # Disabled by default - enable to deploy a co-located store, or set
 # localVM.writeEndpoint to your own VM.
@@ -119,9 +100,6 @@ serviceAccount:
 rbac:
   # Create the ClusterRole/Binding needed by the k8s_cluster + kubeletstats receivers.
   create: true
-  # Extra policy rules appended to the ClusterRole, e.g. for discovery receivers
-  # (k8s_observer) that need to watch resources beyond the defaults.
-  extraRules: []
 
 service:
   # ClusterIP service exposing the OTLP receivers for in-cluster apps.

@@ -76,7 +76,6 @@ central
 {{- if .Values.receivers.k8sCluster.enabled -}}{{- $r = append $r "k8s_cluster" -}}{{- end -}}
 {{- if .Values.receivers.kubeletStats.enabled -}}{{- $r = append $r "kubeletstats" -}}{{- end -}}
 {{- $r = append $r "prometheus/internal" -}}
-{{- range .Values.extraMetricsReceivers -}}{{- $r = append $r . -}}{{- end -}}
 {{- join ", " $r -}}
 {{- end -}}
 

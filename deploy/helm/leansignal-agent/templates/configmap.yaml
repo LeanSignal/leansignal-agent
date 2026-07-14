@@ -20,9 +20,6 @@ data:
         ping_interval: 30s
         local_vm_query_url: {{ include "leansignal-agent.localVMQueryEndpoint" . | quote }}
     {{- end }}
-    {{- with .Values.extraExtensions }}
-      {{- toYaml . | nindent 6 }}
-    {{- end }}
 
     receivers:
     {{- if .Values.receivers.otlp.enabled }}
@@ -53,9 +50,6 @@ data:
               scrape_interval: 15s
               static_configs:
                 - targets: [127.0.0.1:8888]
-    {{- with .Values.extraReceivers }}
-      {{- toYaml . | nindent 6 }}
-    {{- end }}
 
     processors:
       memory_limiter:
@@ -133,11 +127,10 @@ data:
     {{- end }}
 
     service:
-    {{- $extraExt := keys (.Values.extraExtensions | default dict) | sortAlpha }}
     {{- if eq $mode "central" }}
-      extensions: [health_check, leansignal_edge_controller{{ range $extraExt }}, {{ . }}{{ end }}]
+      extensions: [health_check, leansignal_edge_controller]
     {{- else }}
-      extensions: [health_check{{ range $extraExt }}, {{ . }}{{ end }}]
+      extensions: [health_check]
     {{- end }}
       pipelines:
         metrics/all:
