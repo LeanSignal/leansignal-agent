@@ -1,12 +1,18 @@
-# Quick local trial: LeanSignal Agent + co-located VictoriaMetrics.
+# Quick local trial: LeanSignal Agent + co-located VictoriaMetrics + co-located
+# Loki + co-located Tempo.
 #
 #   export LEANSIGNAL_ENDPOINT=wss://api.leansignal.com/api/v1/agents/ws/
 #   export LEANSIGNAL_AGENT_KEY=...
 #   export LEANSIGNAL_DATAPLANE_ENDPOINT=https://dataplane.example.com/api/v1/write
+#   export LEANSIGNAL_LOKI_ENDPOINT=https://ingest.example.com   # optional; tenant logs-ingest base
+#   export LEANSIGNAL_TEMPO_ENDPOINT=https://ingest.example.com  # optional; tenant traces-ingest base
 #   export LEANSIGNAL_AGENT_NAME=my-host   # optional; the agent_name label (default: docker-agent)
 #   docker compose -f deploy/docker/docker-compose.yaml up
 #
-# Send OTLP to localhost:4318, query the local store at http://localhost:8428.
+# Send OTLP to localhost:4318 (Loki push to localhost:3500), query the local
+# metrics store at http://localhost:8428, the local log store at
+# http://localhost:3100, and the local trace store at http://localhost:3200
+# (all loopback-only).
 services:
   victoriametrics:
     image: victoriametrics/victoria-metrics:v1.111.0
@@ -20,23 +26,57 @@ services:
       - "8428:8428"
     restart: unless-stopped
 
+  # Local log store: full fidelity, ~1h window (see loki.yaml).
+  loki:
+    image: grafana/loki:3.5.12
+    command: ["-config.file=/etc/loki/loki.yaml"]
+    volumes:
+      - ./loki.yaml:/etc/loki/loki.yaml:ro
+      - lokidata:/loki
+    ports:
+      - "127.0.0.1:3100:3100"
+    restart: unless-stopped
+
+  # Local trace store: full fidelity, ~1h window (see tempo.yaml).
+  tempo:
+    image: grafana/tempo:2.7.1
+    command: ["-config.file=/etc/tempo/tempo.yaml"]
+    volumes:
+      - ./tempo.yaml:/etc/tempo/tempo.yaml:ro
+      - tempodata:/var/tempo
+    ports:
+      - "127.0.0.1:3200:3200"
+    restart: unless-stopped
+
   agent:
     image: ghcr.io/leansignal/leansignal-agent:${AGENT_TAG:-latest}
     depends_on:
       - victoriametrics
+      - loki
+      - tempo
     command: ["--config", "/etc/leansignal-agent/config.yaml"]
     environment:
       LEANSIGNAL_ENDPOINT: ${LEANSIGNAL_ENDPOINT:?set LEANSIGNAL_ENDPOINT}
       LEANSIGNAL_AGENT_KEY: ${LEANSIGNAL_AGENT_KEY:?set LEANSIGNAL_AGENT_KEY}
       LEANSIGNAL_AGENT_NAME: ${LEANSIGNAL_AGENT_NAME:-docker-agent}
       LEANSIGNAL_DATAPLANE_ENDPOINT: ${LEANSIGNAL_DATAPLANE_ENDPOINT:?set LEANSIGNAL_DATAPLANE_ENDPOINT}
+      # Tenant logs-ingest base (demanded streams only). Defaults to the local
+      # Loki so the trial runs standalone; with no demand nothing is sent anyway.
+      LEANSIGNAL_LOKI_ENDPOINT: ${LEANSIGNAL_LOKI_ENDPOINT:-http://loki:3100}
+      # Tenant traces-ingest base (demanded resources' spans only). Defaults to
+      # the local Tempo so the trial runs standalone.
+      LEANSIGNAL_TEMPO_ENDPOINT: ${LEANSIGNAL_TEMPO_ENDPOINT:-http://tempo:4318}
     volumes:
       - ./agent-config.yaml:/etc/leansignal-agent/config.yaml:ro
     ports:
       - "4317:4317"
       - "4318:4318"
+      - "3500:3500"
+      - "3600:3600"
       - "13133:13133"
     restart: unless-stopped
 
 volumes:
   vmdata: {}
+  lokidata: {}
+  tempodata: {}

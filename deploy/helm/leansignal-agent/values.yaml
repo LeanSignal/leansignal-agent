@@ -66,12 +66,57 @@ localVM:
   # Leave empty to derive it from writeEndpoint / the bundled subchart.
   queryEndpoint: ""
 
+# Logs pipelines (demand-driven logging; central mode only). The agent writes
+# every log stream to a local Loki (short window) and forwards only the demanded
+# streams to the tenant Loki.
+logs:
+  enabled: true
+  # Advanced: override the derived tenant logs-ingest base URL. Leave empty to
+  # derive from tenant/domain: https://<tenant>-ingest.<domain> (same ingest
+  # host as the metrics dataplane; the exporter appends /otlp/v1/logs).
+  tenantEndpoint: ""
+
+# Local, full-fidelity Loki (short retention window) that receives every log
+# stream. Deploy your own Loki and point these at it.
+localLoki:
+  # OTLP logs push endpoint of the local Loki (…/otlp/v1/logs).
+  writeEndpoint: ""
+  # Query base URL (no /otlp/v1/logs) of the local Loki. lean-api proxies the
+  # UI's edit-mode LOG queries down the control stream and the agent runs them
+  # here. Leave empty to derive it from writeEndpoint.
+  queryEndpoint: ""
+
+# Traces pipelines (demand-driven tracing; central mode only). The agent writes
+# every span to a local Tempo (short window) and forwards only the demanded
+# resources' spans to the tenant Tempo.
+traces:
+  enabled: true
+  # Advanced: override the derived tenant traces-ingest base URL. Leave empty to
+  # derive from tenant/domain: https://<tenant>-ingest.<domain> (same ingest
+  # host as the metrics dataplane; the exporter appends /v1/traces).
+  tenantEndpoint: ""
+
+# Local, full-fidelity Tempo (short retention window) that receives every span.
+# Deploy your own Tempo and point these at it.
+localTempo:
+  # OTLP traces push endpoint of the local Tempo (…/v1/traces). Note the local
+  # Tempo's OTLP receiver must NOT bind 4317/4318 (the agent collector owns
+  # them when co-located) — the host installs use 4328.
+  writeEndpoint: ""
+  # Query base URL (no /v1/traces) of the local Tempo. lean-api proxies the
+  # UI's edit-mode TRACE queries down the control stream and the agent runs
+  # them here.
+  queryEndpoint: ""
+
 receivers:
   otlp:
     enabled: true
   k8sCluster:
     enabled: true
   kubeletStats:
+    enabled: true
+  # Loki push protocol (promtail/alloy-style shippers) for the logs/all pipeline.
+  loki:
     enabled: true
 
 # Bundled local VictoriaMetrics (upstream victoria-metrics-single chart).
@@ -106,6 +151,9 @@ service:
   type: ClusterIP
   otlpGRPCPort: 4317
   otlpHTTPPort: 4318
+  # Loki push receiver ports (rendered only when logs + the loki receiver are enabled).
+  lokiHTTPPort: 3500
+  lokiGRPCPort: 3600
 
 # OTLP ingress. DEFAULT OFF - exposing the agent's OTLP receivers over ingress is
 # NOT a standard use case and, without care, can expose them unauthenticated on the

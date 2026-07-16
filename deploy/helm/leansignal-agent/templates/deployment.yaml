@@ -34,6 +34,10 @@ spec:
             - { name: otlp-grpc, containerPort: 4317 }
             - { name: otlp-http, containerPort: 4318 }
             - { name: health, containerPort: 13133 }
+            {{- if and .Values.logs.enabled .Values.receivers.loki.enabled (eq (include "leansignal-agent.mode" .) "central") }}
+            - { name: loki-http, containerPort: 3500 }
+            - { name: loki-grpc, containerPort: 3600 }
+            {{- end }}
           env:
             - name: K8S_NODE_NAME
               valueFrom:
@@ -52,6 +56,12 @@ spec:
               value: {{ include "leansignal-agent.controlEndpoint" . | quote }}
             - name: LEANSIGNAL_DATAPLANE_ENDPOINT
               value: {{ include "leansignal-agent.dataplaneEndpoint" . | quote }}
+            # Tenant logs-ingest base (central mode; the exporter appends /otlp/v1/logs).
+            - name: LEANSIGNAL_LOKI_ENDPOINT
+              value: {{ include "leansignal-agent.lokiEndpoint" . | quote }}
+            # Tenant traces-ingest base (central mode; the exporter appends /v1/traces).
+            - name: LEANSIGNAL_TEMPO_ENDPOINT
+              value: {{ include "leansignal-agent.tempoEndpoint" . | quote }}
             # Edge mode only (empty in central mode): the central agent's OTLP endpoint.
             - name: CENTRAL_AGENT_GRPC_URL
               value: {{ .Values.leansignal.centralAgentGrpcUrl | quote }}

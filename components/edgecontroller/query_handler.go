@@ -18,8 +18,10 @@
 //
 // Handles QueryRequests pushed by lean-api over the control stream: the agent
 // runs the (read-only, allow-listed) HTTP query against its private local
-// VictoriaMetrics and returns a QueryResponse. This is the read side of the
-// query tunnel (lean-api's avm_proxy → this agent → local VM).
+// store — VictoriaMetrics (QUERY_TARGET_VM, the default), Loki
+// (QUERY_TARGET_LOKI), or Tempo (QUERY_TARGET_TEMPO) — and returns a
+// QueryResponse. This is the read side of the query tunnel (lean-api's
+// avm_proxy/aloki_proxy/atempo_proxy → this agent → local store).
 package leansignaledgecontroller
 
 import (
@@ -38,9 +40,10 @@ import (
 )
 
 const (
-	// maxConcurrentQueries bounds in-flight local-VM queries.
+	// maxConcurrentQueries bounds in-flight local-store queries (VM + Loki +
+	// Tempo share it).
 	maxConcurrentQueries = 8
-	// queryTimeout caps a single local-VM HTTP call (shorter than lean-api's
+	// queryTimeout caps a single local-store HTTP call (shorter than lean-api's
 	// SendQuery deadline so the agent replies before the server gives up).
 	queryTimeout = 20 * time.Second
 	// maxQueryResponseBytes caps the response body so the QueryResponse envelope
@@ -48,14 +51,16 @@ const (
 	maxQueryResponseBytes = maxMessageBytes - (1 << 20) // 15 MiB
 )
 
-// queryHTTPClient runs the local-VM query. Its Timeout backstops queryTimeout.
+// queryHTTPClient runs the local-store query. Its Timeout backstops queryTimeout.
 var queryHTTPClient = &http.Client{Timeout: queryTimeout}
 
-// handleQueryRequest executes one QueryRequest against the local VM and always
-// sends exactly one QueryResponse (carrying either the VM's HTTP response or an
-// agent-side error code in status_code + error).
+// handleQueryRequest executes one QueryRequest against the targeted local store
+// (VictoriaMetrics or Loki, per QueryRequest.target) and always sends exactly
+// one QueryResponse (carrying either the store's HTTP response or an agent-side
+// error code in status_code + error).
 func (e *edgeControllerExtension) handleQueryRequest(correlationID uint64, req *agentv1.QueryRequest) {
-	// Bound concurrency; reject (429) rather than queue unboundedly.
+	// Bound concurrency; reject (429) rather than queue unboundedly. The
+	// semaphore is shared across targets — one budget for all local queries.
 	select {
 	case e.querySem <- struct{}{}:
 		defer func() { <-e.querySem }()
@@ -64,9 +69,33 @@ func (e *edgeControllerExtension) handleQueryRequest(correlationID uint64, req *
 		return
 	}
 
-	if e.config.LocalVMQueryURL == "" {
-		e.sendQueryResponse(correlationID, errResp(http.StatusServiceUnavailable, "query disabled: local_vm_query_url not configured"))
-		return
+	// Resolve the target store: base URL + per-target read allow-list.
+	var (
+		baseURL   string
+		isAllowed func(method, cleanPath string) bool
+	)
+	switch req.GetTarget() {
+	case agentv1.QueryTarget_QUERY_TARGET_LOKI:
+		if e.config.LocalLokiQueryURL == "" {
+			e.sendQueryResponse(correlationID, errResp(http.StatusServiceUnavailable, "query disabled: local_loki_query_url not configured"))
+			return
+		}
+		baseURL = e.config.LocalLokiQueryURL
+		isAllowed = isAllowedLokiPath
+	case agentv1.QueryTarget_QUERY_TARGET_TEMPO:
+		if e.config.LocalTempoQueryURL == "" {
+			e.sendQueryResponse(correlationID, errResp(http.StatusServiceUnavailable, "query disabled: local_tempo_query_url not configured"))
+			return
+		}
+		baseURL = e.config.LocalTempoQueryURL
+		isAllowed = isAllowedTempoPath
+	default: // QUERY_TARGET_VM — also what old servers send (zero value)
+		if e.config.LocalVMQueryURL == "" {
+			e.sendQueryResponse(correlationID, errResp(http.StatusServiceUnavailable, "query disabled: local_vm_query_url not configured"))
+			return
+		}
+		baseURL = e.config.LocalVMQueryURL
+		isAllowed = isAllowedVMPath
 	}
 
 	method := strings.ToUpper(req.GetMethod())
@@ -74,15 +103,19 @@ func (e *edgeControllerExtension) handleQueryRequest(correlationID uint64, req *
 		method = http.MethodGet
 	}
 	cleanPath := path.Clean("/" + strings.TrimPrefix(req.GetPath(), "/"))
-	if !isAllowedVMPath(method, cleanPath) {
-		e.logger.Warn("query rejected by allowlist", zap.String("method", method), zap.String("path", cleanPath))
+	if !isAllowed(method, cleanPath) {
+		e.logger.Warn("query rejected by allowlist",
+			zap.String("method", method),
+			zap.String("path", cleanPath),
+			zap.String("target", req.GetTarget().String()),
+		)
 		e.sendQueryResponse(correlationID, errResp(http.StatusForbidden, "path not allowed"))
 		return
 	}
 
-	target, err := url.Parse(e.config.LocalVMQueryURL)
+	target, err := url.Parse(baseURL)
 	if err != nil {
-		e.sendQueryResponse(correlationID, errResp(http.StatusInternalServerError, "invalid local_vm_query_url"))
+		e.sendQueryResponse(correlationID, errResp(http.StatusInternalServerError, "invalid local query base url"))
 		return
 	}
 	target.Path = cleanPath
@@ -107,8 +140,11 @@ func (e *edgeControllerExtension) handleQueryRequest(correlationID uint64, req *
 
 	resp, err := queryHTTPClient.Do(httpReq)
 	if err != nil {
-		e.logger.Warn("local VM query failed", zap.String("path", cleanPath), zap.Error(err))
-		e.sendQueryResponse(correlationID, errResp(http.StatusBadGateway, "local VM unreachable: "+err.Error()))
+		e.logger.Warn("local store query failed",
+			zap.String("path", cleanPath),
+			zap.String("target", req.GetTarget().String()),
+			zap.Error(err))
+		e.sendQueryResponse(correlationID, errResp(http.StatusBadGateway, "local store unreachable: "+err.Error()))
 		return
 	}
 	defer resp.Body.Close()
@@ -171,6 +207,58 @@ func isAllowedVMPath(method, cleanPath string) bool {
 	}
 	// /api/v1/status/* (read-only: buildinfo, tsdb stats, etc.)
 	if strings.HasPrefix(cleanPath, "/api/v1/status/") {
+		return true
+	}
+	return false
+}
+
+// isAllowedLokiPath restricts the tunnel to read-only Loki query APIs. The path
+// must already be cleaned (no "..", leading slash). Anything else — push,
+// delete, admin, and notably /loki/api/v1/tail (WebSocket, doesn't fit the
+// one-request/one-response tunnel) — is refused.
+func isAllowedLokiPath(method, cleanPath string) bool {
+	if method != http.MethodGet && method != http.MethodPost {
+		return false
+	}
+	switch cleanPath {
+	case "/loki/api/v1/query",
+		"/loki/api/v1/query_range",
+		"/loki/api/v1/labels",
+		"/loki/api/v1/series",
+		"/loki/api/v1/index/stats",
+		"/loki/api/v1/index/volume",
+		"/loki/api/v1/patterns":
+		return true
+	}
+	// /loki/api/v1/label/<name>/values
+	if strings.HasPrefix(cleanPath, "/loki/api/v1/label/") && strings.HasSuffix(cleanPath, "/values") {
+		return true
+	}
+	return false
+}
+
+// isAllowedTempoPath restricts the tunnel to read-only Tempo query APIs. The
+// path must already be cleaned (no "..", leading slash). Anything else —
+// ingest, flush, admin, and the metrics-generator endpoints (/api/metrics/*,
+// not enabled on either Tempo) — is refused.
+func isAllowedTempoPath(method, cleanPath string) bool {
+	if method != http.MethodGet && method != http.MethodPost {
+		return false
+	}
+	switch cleanPath {
+	case "/api/echo",
+		"/api/search",
+		"/api/search/tags",
+		"/api/v2/search/tags":
+		return true
+	}
+	// /api/traces/<traceID> and /api/v2/traces/<traceID>
+	if strings.HasPrefix(cleanPath, "/api/traces/") || strings.HasPrefix(cleanPath, "/api/v2/traces/") {
+		return true
+	}
+	// /api/search/tag/<tag>/values and /api/v2/search/tag/<tag>/values
+	if (strings.HasPrefix(cleanPath, "/api/search/tag/") || strings.HasPrefix(cleanPath, "/api/v2/search/tag/")) &&
+		strings.HasSuffix(cleanPath, "/values") {
 		return true
 	}
 	return false

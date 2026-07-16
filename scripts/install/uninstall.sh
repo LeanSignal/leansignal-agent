@@ -13,7 +13,7 @@ os="$(uname -s | tr '[:upper:]' '[:lower:]')"
 
 if [ "$os" = linux ]; then
   CONF_DIR=/etc/leansignal-agent; DATA_DIR=/var/lib/leansignal-agent
-  for svc in leansignal-agent leansignal-victoria-metrics; do
+  for svc in leansignal-agent leansignal-victoria-metrics leansignal-loki leansignal-tempo; do
     systemctl disable --now "${svc}.service" 2>/dev/null || true
     rm -f "/etc/systemd/system/${svc}.service"
   done
@@ -26,7 +26,7 @@ else
   done
 fi
 
-rm -f /usr/local/bin/leansignal-agent /usr/local/bin/victoria-metrics
+rm -f /usr/local/bin/leansignal-agent /usr/local/bin/victoria-metrics /usr/local/bin/loki /usr/local/bin/tempo
 info "removed binaries and services"
 
 if [ "$PURGE" -eq 1 ]; then

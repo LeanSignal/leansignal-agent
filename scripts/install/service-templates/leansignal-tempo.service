@@ -1,0 +1,15 @@
+[Unit]
+Description=Tempo (LeanSignal Agent local trace store)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/tempo \
+  -config.file=/etc/leansignal-agent/tempo.yaml
+Restart=on-failure
+RestartSec=5
+LimitNOFILE=1048576
+
+[Install]
+WantedBy=multi-user.target

@@ -6,6 +6,40 @@ All notable changes to this project are documented here. The format is based on
 
 ## [Unreleased]
 
+## [0.6.0] - 2026-07-16
+### Added
+- **Demand-driven logs (Loki).** A new `logs/all` → `logs/filtered` pipeline pair
+  mirrors the metrics fan-out: the agent writes every log record to a co-located
+  Loki (~1h window) and forwards **only** the demanded LogQL streams to the tenant
+  Loki. New `leansignal_log_demand_filter` processor (`components/logdemandfilter`)
+  drops any `ResourceLogs` group whose computed Loki stream labels match no demanded
+  selector — fail-closed (an empty / not-yet-received demand list forwards zero log
+  records). The `loki` push receiver is enabled so promtail/Alloy-style shippers can
+  push natively; tenant delivery uses `otlphttp` with the agent key as a bearer,
+  authenticated at the ingest ingress. A co-located Loki is installed alongside the
+  agent in every deploy form (host installer `--no-loki`/`--loki-version`, docker
+  compose, Helm `localLoki`/`logs` values), pinned via `LOKI_VERSION`.
+- **Demand-driven traces (Tempo).** A `traces/all` → `traces/filtered` pipeline pair,
+  the traces twin of the logs path: everything to a co-located Tempo (~1h window),
+  only the demanded resources' spans forwarded to the tenant Tempo. New
+  `leansignal_trace_demand_filter` processor (`components/tracedemandfilter`) drops
+  any `ResourceSpans` group whose resource attributes match no demanded selector —
+  resource-granular (whole services, never individual spans), fail-closed. The local
+  Tempo's OTLP receiver binds `127.0.0.1:4328` (the collector owns 4317/4318); query
+  API on `127.0.0.1:3200`. Installed in all deploy forms (host installer
+  `--no-tempo`/`--tempo-version`, docker compose, Helm `localTempo`/`traces` values),
+  pinned via `TEMPO_VERSION`.
+- **Edit-mode query tunnel for logs and traces.** `QueryRequest.target`
+  (`QUERY_TARGET_VM` | `QUERY_TARGET_LOKI` | `QUERY_TARGET_TEMPO`) selects which
+  co-located store the edge controller runs a lean-api-proxied, read-only,
+  allow-listed query against; the demand set (and the `DemandSet.hash` agents echo
+  back) now covers metric names, LogQL stream selectors, and trace resource selectors.
+
+### Notes
+- **Proto is additive and wire-compatible.** Old servers/agents ignore the new
+  `DemandSet.log_selectors` / `trace_selectors` fields and the new `QueryTarget`
+  values, so mixed fleets keep working (metrics-only for older peers).
+
 ## [0.5.1] - 2026-07-14
 ### Fixed
 - **Identity-label collision on the `mode` / `agent_name` labels.** The `resource`

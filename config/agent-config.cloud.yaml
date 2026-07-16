@@ -12,10 +12,19 @@
 #   LEANSIGNAL_AGENT_KEY           <the tenant's agent key>
 #   LEANSIGNAL_LOCAL_VM            http://localhost:8482                 (this host's vm-ag base)
 #   LEANSIGNAL_DATAPLANE_ENDPOINT  https://<tenant>-ingest.eu11.leansignal.io  (vmauth ingest base)
+#   LEANSIGNAL_LOCAL_LOKI          http://localhost:3100                 (this host's local Loki base)
+#   LEANSIGNAL_LOKI_ENDPOINT       https://<tenant>-ingest.eu11.leansignal.io  (logs ingest base, same
+#                                  origin as the dataplane; path-routed to the tenant Loki)
+#   LEANSIGNAL_LOCAL_TEMPO         http://localhost:3200                 (this host's local Tempo query base)
+#   LEANSIGNAL_LOCAL_TEMPO_INGEST  http://localhost:4328                 (this host's local Tempo OTLP base —
+#                                  the collector owns 4317/4318, so the local Tempo binds 4328)
+#   LEANSIGNAL_TEMPO_ENDPOINT      https://<tenant>-ingest.eu11.leansignal.io  (traces ingest base, same
+#                                  origin as the dataplane; path-routed to the tenant Tempo)
 #
 # NOTE: the dataplane path only works once the tenant's vmauth ingest is deployed;
 # until then, demanded metrics can't reach the central VM (control + local store
-# still work). With no demands nothing is written there, so it's harmless.
+# still work). With no demands nothing is written there, so it's harmless. The
+# same applies to the tenant Loki ingest for demanded log streams.
 # =============================================================================
 
 extensions:
@@ -29,6 +38,10 @@ extensions:
     ping_interval: 30s
     # UI edit-mode queries tunnel here; the agent appends /api/v1/query itself.
     local_vm_query_url: "${env:LEANSIGNAL_LOCAL_VM}"
+    # UI edit-mode LOG queries tunnel here (QueryRequest target QUERY_TARGET_LOKI).
+    local_loki_query_url: "${env:LEANSIGNAL_LOCAL_LOKI}"
+    # UI edit-mode TRACE queries tunnel here (QueryRequest target QUERY_TARGET_TEMPO).
+    local_tempo_query_url: "${env:LEANSIGNAL_LOCAL_TEMPO}"
     # get_diagnosis writes cache YAML dumps here (defaults to /tmp/leansignal-agent).
     # Point at a mounted volume if you want them to survive a pod restart.
     # diagnostics_dir: /var/lib/leansignal/diagnostics
@@ -40,6 +53,14 @@ receivers:
         endpoint: 127.0.0.1:4317
       http:
         endpoint: 127.0.0.1:4318
+  # Loki push (promtail/alloy-style shippers). Loopback-only here, mirroring
+  # the OTLP receivers above.
+  loki:
+    protocols:
+      http:
+        endpoint: 127.0.0.1:3500
+      grpc:
+        endpoint: 127.0.0.1:3600
   hostmetrics:
     collection_interval: 15s
     scrapers:
@@ -89,6 +110,10 @@ processors:
     log_series: false
   leansignal_demand_filter:
     log_filtered: false
+  leansignal_log_demand_filter:
+    log_filtered: false
+  leansignal_trace_demand_filter:
+    log_filtered: false
 
 exporters:
   # This host's "vm-ag" - receives everything. Base URL + write path built here.
@@ -109,9 +134,41 @@ exporters:
       Authorization: "Bearer ${env:LEANSIGNAL_AGENT_KEY}"
     resource_to_telemetry_conversion:
       enabled: true
+  # This host's local Loki - receives every log stream (base URL + OTLP logs
+  # path built here).
+  otlphttp/loki_local:
+    logs_endpoint: "${env:LEANSIGNAL_LOCAL_LOKI}/otlp/v1/logs"
+  # Tenant Loki via the ingest host - only the demanded streams. The agent key
+  # is the bearer token the ingress forward-auth authenticates.
+  otlphttp/loki_tenant:
+    logs_endpoint: "${env:LEANSIGNAL_LOKI_ENDPOINT}/otlp/v1/logs"
+    headers:
+      Authorization: "Bearer ${env:LEANSIGNAL_AGENT_KEY}"
+    retry_on_failure:
+      enabled: true
+    sending_queue:
+      enabled: true
+  # This host's local Tempo - receives every span (base URL + OTLP traces path
+  # built here; the local Tempo's OTLP receiver binds 4328, not 4318).
+  otlphttp/tempo_local:
+    traces_endpoint: "${env:LEANSIGNAL_LOCAL_TEMPO_INGEST}/v1/traces"
+    retry_on_failure:
+      enabled: true
+  # Tenant Tempo via the ingest host - only the demanded resources' spans. The
+  # agent key is the bearer token the ingress forward-auth authenticates.
+  otlphttp/tempo_tenant:
+    traces_endpoint: "${env:LEANSIGNAL_TEMPO_ENDPOINT}/v1/traces"
+    headers:
+      Authorization: "Bearer ${env:LEANSIGNAL_AGENT_KEY}"
+    retry_on_failure:
+      enabled: true
+    sending_queue:
+      enabled: true
 
 connectors:
   forward/demand_filter: {}
+  forward/log_demand_filter: {}
+  forward/trace_demand_filter: {}
 
 service:
   extensions: [health_check, leansignal_edge_controller]
@@ -124,6 +181,22 @@ service:
       receivers: [forward/demand_filter]
       processors: [leansignal_demand_filter, batch]
       exporters: [prometheusremotewrite/dataplane]
+    logs/all:
+      receivers: [otlp, loki]
+      processors: [resourcedetection, resource, batch]
+      exporters: [otlphttp/loki_local, forward/log_demand_filter]
+    logs/filtered:
+      receivers: [forward/log_demand_filter]
+      processors: [leansignal_log_demand_filter, batch]
+      exporters: [otlphttp/loki_tenant]
+    traces/all:
+      receivers: [otlp]
+      processors: [resourcedetection, resource, batch]
+      exporters: [otlphttp/tempo_local, forward/trace_demand_filter]
+    traces/filtered:
+      receivers: [forward/trace_demand_filter]
+      processors: [leansignal_trace_demand_filter, batch]
+      exporters: [otlphttp/tempo_tenant]
   telemetry:
     # Expose the collector's own metrics on 127.0.0.1:8888 so the
     # prometheus/internal receiver above can scrape them. `detailed` adds the

@@ -1,0 +1,40 @@
+# Tempo config for the LeanSignal Agent's co-located local trace store.
+# Installed to /etc/leansignal-agent/tempo.yaml by scripts/install/install.sh.
+#
+# Single binary (monolithic), local filesystem storage, loopback-only — the
+# traces twin of the co-located VictoriaMetrics/Loki. It holds a short (~1h)
+# full-fidelity window; the only way in from outside is the agent's gRPC query
+# tunnel. The OTLP receiver binds 4328 because the agent collector itself owns
+# 4317/4318.
+
+server:
+  http_listen_address: 127.0.0.1
+  http_listen_port: 3200
+  grpc_listen_address: 127.0.0.1
+  grpc_listen_port: 9097
+
+distributor:
+  receivers:
+    otlp:
+      protocols:
+        http:
+          endpoint: 127.0.0.1:4328
+
+storage:
+  trace:
+    backend: local
+    local:
+      path: /var/lib/leansignal-agent/tempo/blocks
+    wal:
+      path: /var/lib/leansignal-agent/tempo/wal
+
+# The "~1h window" is APPROXIMATE by design: Tempo has no query-lookback bound
+# (unlike the local Loki's max_query_lookback), deletion is compaction-driven
+# and block-granular, and recent spans live in the ingester before blocks cut.
+# block_retention bounds disk to a small multiple of the window.
+compactor:
+  compaction:
+    block_retention: 1h
+
+usage_report:
+  reporting_enabled: false

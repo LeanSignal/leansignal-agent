@@ -23,6 +23,10 @@ DEV_AGENT_KEY   := deadbeef-dead-beef-dead-beefdeadbeef
 AGENT_NAME      ?= dev-$(shell hostname -s 2>/dev/null || echo local)
 LOCAL_VM        ?= http://localhost:8482
 LOCAL_DATAPLANE ?= http://localhost:8483
+# LOCAL_LOKI is the agent's own local Loki (write + UI query). In local-run the
+# demanded log streams also go there (no tenant Loki in dev); in cloud-run they
+# go to the tenant ingest origin (same host as the dataplane, path-routed).
+LOCAL_LOKI      ?= http://localhost:3100
 
 # local-avm: a standalone VictoriaMetrics acting as the agent's local store (vm-ag).
 # Serves LOCAL_VM (:8482); data lives in ./vm-data (gitignored).
@@ -125,6 +129,8 @@ local-run: ## Run the pre-built agent vs local lean-api (:9090) + VM (:8482). Ru
 	LEANSIGNAL_AGENT_NAME="$(AGENT_NAME)" \
 	LEANSIGNAL_LOCAL_VM="$(LOCAL_VM)" \
 	LEANSIGNAL_DATAPLANE_ENDPOINT="$(LOCAL_DATAPLANE)" \
+	LEANSIGNAL_LOCAL_LOKI="$(LOCAL_LOKI)" \
+	LEANSIGNAL_LOKI_ENDPOINT="$(LOCAL_LOKI)" \
 	$(BUILD_DIR)/$(BINARY) --config config/agent-config.local.yaml
 
 .PHONY: cloud-run
@@ -137,6 +143,8 @@ cloud-run: ## Run the pre-built agent vs a CLOUD tenant over TLS(443). Requires 
 	LEANSIGNAL_AGENT_NAME="$(AGENT_NAME)" \
 	LEANSIGNAL_LOCAL_VM="$(LOCAL_VM)" \
 	LEANSIGNAL_DATAPLANE_ENDPOINT="$(CLOUD_DATAPLANE)" \
+	LEANSIGNAL_LOCAL_LOKI="$(LOCAL_LOKI)" \
+	LEANSIGNAL_LOKI_ENDPOINT="$(CLOUD_DATAPLANE)" \
 	$(BUILD_DIR)/$(BINARY) --config config/agent-config.cloud.yaml
 
 .PHONY: snapshot

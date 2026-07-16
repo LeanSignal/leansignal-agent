@@ -150,6 +150,16 @@ processors:
     import: github.com/leansignal/leansignal-agent/components/demandfilter
     name: leansignal_demand_filter
 
+  # leansignal log demand filter processor - forwards only demanded log streams to the tenant Loki
+  - gomod: github.com/leansignal/leansignal-agent v0.1.0
+    import: github.com/leansignal/leansignal-agent/components/logdemandfilter
+    name: leansignal_log_demand_filter
+
+  # leansignal trace demand filter processor - forwards only demanded resources' spans to the tenant Tempo
+  - gomod: github.com/leansignal/leansignal-agent v0.1.0
+    import: github.com/leansignal/leansignal-agent/components/tracedemandfilter
+    name: leansignal_trace_demand_filter
+
 receivers:
   - gomod: go.opentelemetry.io/collector/receiver/nopreceiver v0.141.0
   - gomod: go.opentelemetry.io/collector/receiver/otlpreceiver v0.141.0

@@ -18,4 +18,14 @@ spec:
       port: {{ .Values.service.otlpHTTPPort }}
       targetPort: otlp-http
       protocol: TCP
+{{- if and .Values.logs.enabled .Values.receivers.loki.enabled (eq (include "leansignal-agent.mode" .) "central") }}
+    - name: loki-http
+      port: {{ .Values.service.lokiHTTPPort }}
+      targetPort: loki-http
+      protocol: TCP
+    - name: loki-grpc
+      port: {{ .Values.service.lokiGRPCPort }}
+      targetPort: loki-grpc
+      protocol: TCP
+{{- end }}
 {{- end }}

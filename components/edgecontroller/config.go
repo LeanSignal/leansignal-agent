@@ -34,6 +34,8 @@ import (
 //	    reconnect_interval: 5s
 //	    ping_interval: 30s
 //	    local_vm_query_url: "http://127.0.0.1:8428"
+//	    local_loki_query_url: "http://127.0.0.1:3100"
+//	    local_tempo_query_url: "http://127.0.0.1:3200"
 type Config struct {
 	// Endpoint is the gRPC target of the LeanSignal backend, in host:port form
 	// (no scheme). Example: lean-api:443 (prod) or localhost:9090 (local dev).
@@ -59,6 +61,20 @@ type Config struct {
 	// control stream and the agent runs them here. If empty, the agent answers
 	// QueryRequests with a 503 ("query disabled").
 	LocalVMQueryURL string `mapstructure:"local_vm_query_url"`
+
+	// LocalLokiQueryURL is the base URL of the agent's local Loki query API
+	// (e.g. http://127.0.0.1:3100). lean-api proxies the UI's edit-mode LOG
+	// queries down the control stream (QueryRequest{target: QUERY_TARGET_LOKI})
+	// and the agent runs them here. If empty, the agent answers Loki-targeted
+	// QueryRequests with a 503 ("query disabled").
+	LocalLokiQueryURL string `mapstructure:"local_loki_query_url"`
+
+	// LocalTempoQueryURL is the base URL of the agent's local Tempo query API
+	// (e.g. http://127.0.0.1:3200). lean-api proxies the UI's edit-mode TRACE
+	// queries down the control stream (QueryRequest{target: QUERY_TARGET_TEMPO})
+	// and the agent runs them here. If empty, the agent answers Tempo-targeted
+	// QueryRequests with a 503 ("query disabled").
+	LocalTempoQueryURL string `mapstructure:"local_tempo_query_url"`
 
 	// DiagnosticsDir is where the get_diagnosis command writes the cache dump
 	// files (KnownTimeseriesCache.yaml, DiscoveredTimeseriesCache.yaml,

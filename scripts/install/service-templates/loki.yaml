@@ -1,0 +1,57 @@
+# Loki config for the LeanSignal Agent's co-located local log store.
+# Installed to /etc/leansignal-agent/loki.yaml by scripts/install/install.sh.
+#
+# Single binary, filesystem storage, loopback-only — the logs twin of the
+# co-located VictoriaMetrics. It holds a short (~1h) full-fidelity window; the
+# only way in from outside is the agent's gRPC query tunnel. Native OTLP
+# ingestion (/otlp/v1/logs) needs no extra configuration.
+
+auth_enabled: false
+
+server:
+  http_listen_address: 127.0.0.1
+  http_listen_port: 3100
+  grpc_listen_address: 127.0.0.1
+  grpc_listen_port: 9096
+
+common:
+  instance_addr: 127.0.0.1
+  path_prefix: /var/lib/leansignal-agent/loki
+  storage:
+    filesystem:
+      chunks_directory: /var/lib/leansignal-agent/loki/chunks
+      rules_directory: /var/lib/leansignal-agent/loki/rules
+  replication_factor: 1
+  ring:
+    kvstore:
+      store: inmemory
+
+schema_config:
+  configs:
+    - from: "2026-01-01"
+      store: tsdb
+      object_store: filesystem
+      schema: v13
+      index:
+        prefix: index_
+        period: 24h
+
+# The "1h window", enforced in two layers:
+#   - max_query_lookback makes the LOGICAL window exact: queries cannot see
+#     past it, and ingest rejects backfill beyond it.
+#   - retention_period (~2x the window) merely bounds disk usage; Loki deletion
+#     is compactor-driven and chunk-granular, so it cannot cut exactly at 1h.
+limits_config:
+  max_query_lookback: 1h
+  reject_old_samples: true
+  reject_old_samples_max_age: 1h
+  retention_period: 2h
+
+compactor:
+  working_directory: /var/lib/leansignal-agent/loki/compactor
+  retention_enabled: true
+  delete_request_store: filesystem
+  retention_delete_delay: 10m
+
+analytics:
+  reporting_enabled: false
