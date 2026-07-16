@@ -45,12 +45,12 @@ func TestDemandTimeseriesCache_GetSize(t *testing.T) {
 		t.Fatalf("empty GetSize = %d, want 0", got)
 	}
 
-	cache.UpdateDemands([]string{"a", "b", "c"}, nil, nil, 1)
+	cache.UpdateDemands([]string{"a", "b", "c"}, nil, nil, nil, 1)
 	if got := cache.GetSize(); got != 3 {
 		t.Fatalf("GetSize = %d, want 3", got)
 	}
 
-	cache.UpdateDemands([]string{"x"}, nil, nil, 2) // replace, not append
+	cache.UpdateDemands([]string{"x"}, nil, nil, nil, 2) // replace, not append
 	if got := cache.GetSize(); got != 1 {
 		t.Fatalf("GetSize after replace = %d, want 1", got)
 	}
@@ -64,7 +64,7 @@ func TestDemandTimeseriesCache_GetSize(t *testing.T) {
 func TestDemandTimeseriesCache_Init(t *testing.T) {
 	cache := NewDemandTimeseriesCache(zap.NewNop())
 
-	cache.UpdateDemands([]string{"a", "b"}, nil, nil, 0)
+	cache.UpdateDemands([]string{"a", "b"}, nil, nil, nil, 0)
 	if snap := cache.GetDemands(); len(snap.Timeseries) != 2 {
 		t.Fatalf("expected 2 timeseries before Init, got %d", len(snap.Timeseries))
 	}
@@ -85,7 +85,7 @@ func TestDemandTimeseriesCache_UpdateAndGetDemands(t *testing.T) {
 	cache.setTimeFunc(func() time.Time { return fixedTime })
 
 	input := []string{"cpu.usage", "mem.rss", "net.rx"}
-	cache.UpdateDemands(input, nil, nil, 0)
+	cache.UpdateDemands(input, nil, nil, nil, 0)
 
 	snap := cache.GetDemands()
 	if len(snap.Timeseries) != len(input) {
@@ -104,8 +104,8 @@ func TestDemandTimeseriesCache_UpdateAndGetDemands(t *testing.T) {
 func TestDemandTimeseriesCache_UpdateDemands_ReplacesExisting(t *testing.T) {
 	cache := NewDemandTimeseriesCache(zap.NewNop())
 
-	cache.UpdateDemands([]string{"old.metric"}, nil, nil, 0)
-	cache.UpdateDemands([]string{"new.a", "new.b"}, nil, nil, 0)
+	cache.UpdateDemands([]string{"old.metric"}, nil, nil, nil, 0)
+	cache.UpdateDemands([]string{"new.a", "new.b"}, nil, nil, nil, 0)
 
 	snap := cache.GetDemands()
 	if len(snap.Timeseries) != 2 {
@@ -118,9 +118,9 @@ func TestDemandTimeseriesCache_UpdateDemands_ReplacesExisting(t *testing.T) {
 
 func TestDemandTimeseriesCache_UpdateDemands_EmptySlice(t *testing.T) {
 	cache := NewDemandTimeseriesCache(zap.NewNop())
-	cache.UpdateDemands([]string{"a", "b"}, nil, nil, 0)
+	cache.UpdateDemands([]string{"a", "b"}, nil, nil, nil, 0)
 
-	cache.UpdateDemands([]string{}, nil, nil, 0)
+	cache.UpdateDemands([]string{}, nil, nil, nil, 0)
 	snap := cache.GetDemands()
 	if len(snap.Timeseries) != 0 {
 		t.Errorf("expected 0 timeseries after empty update, got %d", len(snap.Timeseries))
@@ -129,7 +129,7 @@ func TestDemandTimeseriesCache_UpdateDemands_EmptySlice(t *testing.T) {
 
 func TestDemandTimeseriesCache_GetDemands_ReturnsCopy(t *testing.T) {
 	cache := NewDemandTimeseriesCache(zap.NewNop())
-	cache.UpdateDemands([]string{"original"}, nil, nil, 0)
+	cache.UpdateDemands([]string{"original"}, nil, nil, nil, 0)
 
 	snap := cache.GetDemands()
 	snap.Timeseries[0] = "mutated"
@@ -144,7 +144,7 @@ func TestDemandTimeseriesCache_GetDemands_ReturnsCopy(t *testing.T) {
 func TestDemandTimeseriesCache_UpdateDemands_InputMutationSafe(t *testing.T) {
 	cache := NewDemandTimeseriesCache(zap.NewNop())
 	input := []string{"safe"}
-	cache.UpdateDemands(input, nil, nil, 0)
+	cache.UpdateDemands(input, nil, nil, nil, 0)
 
 	// Mutate the original slice after updating
 	input[0] = "mutated"
@@ -165,7 +165,7 @@ func TestDemandTimeseriesCache_ConcurrentAccess(t *testing.T) {
 	for i := 0; i < goroutines; i++ {
 		go func() {
 			defer wg.Done()
-			cache.UpdateDemands([]string{"ts.a", "ts.b"}, nil, nil, 0)
+			cache.UpdateDemands([]string{"ts.a", "ts.b"}, nil, nil, nil, 0)
 		}()
 		go func() {
 			defer wg.Done()
@@ -180,7 +180,7 @@ func TestDemandTimeseriesCache_StoresLogSelectors(t *testing.T) {
 	cache := NewDemandTimeseriesCache(zap.NewNop())
 
 	sel := []string{`{service_name="api"}`, `{k8s_namespace_name="prod"}`}
-	cache.UpdateDemands([]string{"up"}, sel, nil, 1)
+	cache.UpdateDemands([]string{"up"}, sel, nil, nil, 1)
 
 	snap := cache.GetDemands()
 	if len(snap.LogSelectors) != 2 || snap.LogSelectors[0] != sel[0] || snap.LogSelectors[1] != sel[1] {
@@ -188,7 +188,7 @@ func TestDemandTimeseriesCache_StoresLogSelectors(t *testing.T) {
 	}
 
 	// Replaced, not appended; cleared on Init.
-	cache.UpdateDemands(nil, []string{`{a="1"}`}, nil, 2)
+	cache.UpdateDemands(nil, []string{`{a="1"}`}, nil, nil, 2)
 	if snap := cache.GetDemands(); len(snap.LogSelectors) != 1 || snap.LogSelectors[0] != `{a="1"}` {
 		t.Errorf("log selectors not replaced: %v", snap.LogSelectors)
 	}
@@ -201,7 +201,7 @@ func TestDemandTimeseriesCache_StoresLogSelectors(t *testing.T) {
 func TestDemandTimeseriesCache_LogSelectorsCopySafety(t *testing.T) {
 	cache := NewDemandTimeseriesCache(zap.NewNop())
 	input := []string{`{a="1"}`}
-	cache.UpdateDemands(nil, input, nil, 0)
+	cache.UpdateDemands(nil, input, nil, nil, 0)
 
 	input[0] = "mutated" // caller mutation after update must not leak in
 	snap := cache.GetDemands()
@@ -218,7 +218,7 @@ func TestDemandTimeseriesCache_LogSelectorsCopySafety(t *testing.T) {
 func TestDemandTimeseriesCache_StoresHash(t *testing.T) {
 	cache := NewDemandTimeseriesCache(zap.NewNop())
 
-	cache.UpdateDemands([]string{"up"}, nil, nil, 777)
+	cache.UpdateDemands([]string{"up"}, nil, nil, nil, 777)
 	if snap := cache.GetDemands(); snap.DemandHash != 777 {
 		t.Errorf("DemandHash = %d, want 777", snap.DemandHash)
 	}

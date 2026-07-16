@@ -100,19 +100,6 @@ receivers:
       network: {}
       paging: {}
 
-  # Scrape the collector's OWN internal telemetry (otelcol_* self-metrics)
-  # exposed on the service.telemetry.metrics endpoint below (in-process loopback).
-  # These flow through metrics/all just like any other metric: indexed by the
-  # tracker, written in full to the local VM, and forwarded to the central
-  # dataplane only when demanded.
-  prometheus/internal:
-    config:
-      scrape_configs:
-        - job_name: otelcol-self
-          scrape_interval: 15s
-          static_configs:
-            - targets: [127.0.0.1:8888]
-
 processors:
   batch:
     send_batch_size: 5000
@@ -241,8 +228,9 @@ service:
   extensions: [health_check, leansignal_edge_controller]
   pipelines:
     # Everything: tracked, written to the local VM in full, and forwarded on.
+    # (The collector's own metrics arrive here via OTLP too — see service.telemetry.)
     metrics/all:
-      receivers: [otlp, hostmetrics, prometheus/internal]
+      receivers: [otlp, hostmetrics]
       processors: [resourcedetection, resource, leansignalmetrics_tracker, batch]
       exporters: [prometheusremotewrite/local, forward/demand_filter]
 
@@ -277,16 +265,41 @@ service:
       exporters: [otlphttp/tempo_tenant]
 
   telemetry:
-    # Expose the collector's own metrics on 127.0.0.1:8888 so the
-    # prometheus/internal receiver above can scrape them. `detailed` adds the
-    # gRPC/HTTP client+server latency histograms on top of the normal counters.
+    # SELF-MONITORING. The collector's OWN telemetry — metrics, logs AND traces —
+    # is pushed via OTLP to the agent's own loopback OTLP receiver (127.0.0.1:4317).
+    # It then flows through the same */all pipelines as everything else: written in
+    # full to the local store (queryable via "Available") and forwarded to the
+    # tenant only when demanded (so it appears under "Stored" once you build a
+    # dashboard/alert on it). The agent's own service.name is "leansignal-agent".
+    #
+    # Notes:
+    #  - Logs ALSO keep going to stderr/journald (adding OTLP does not silence the
+    #    console), so `journalctl -u leansignal-agent` is unaffected.
+    #  - `metrics.level: detailed` adds the gRPC/HTTP client+server latency
+    #    histograms on top of the normal otelcol_* counters.
+    #  - The collector emits very few internal spans by design, so `traces` yields
+    #    little volume today — it is wired for completeness / future spans.
     metrics:
       level: detailed
       readers:
-        - pull:
+        - periodic:
+            interval: 15000        # milliseconds (15s), matching the old scrape
             exporter:
-              prometheus:
-                host: 127.0.0.1
-                port: 8888
+              otlp:
+                protocol: grpc
+                endpoint: http://127.0.0.1:4317
     logs:
       level: info
+      processors:
+        - batch:
+            exporter:
+              otlp:
+                protocol: grpc
+                endpoint: http://127.0.0.1:4317
+    traces:
+      processors:
+        - batch:
+            exporter:
+              otlp:
+                protocol: grpc
+                endpoint: http://127.0.0.1:4317

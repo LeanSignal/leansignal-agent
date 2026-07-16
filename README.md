@@ -5,15 +5,18 @@
 [![Release](https://github.com/LeanSignal/leansignal-agent/actions/workflows/release.yml/badge.svg)](https://github.com/LeanSignal/leansignal-agent/releases)
 
 The **LeanSignal Agent** is a custom [OpenTelemetry Collector](https://opentelemetry.io/docs/collector/)
-distribution that collects metrics, keeps a live **metric index** in sync with
-the LeanSignal control plane, writes **everything** to a co-located
-[VictoriaMetrics](https://victoriametrics.com/) for full local fidelity, and
-forwards only the **demanded** subset to a central, long-retention dataplane.
+distribution that collects **telemetry** — metrics, logs, and traces — writes
+**everything** to co-located stores for full local fidelity, and forwards only
+the **demanded** subset to a central, long-retention dataplane. Each signal has
+its own local store:
+[VictoriaMetrics](https://victoriametrics.com/) for metrics,
+[Loki](https://grafana.com/oss/loki/) for logs, and
+[Tempo](https://grafana.com/oss/tempo/) for traces.
 
 The agent lives in **your** network and dials **out** to LeanSignal — it needs no
 inbound access. A single long-lived gRPC stream carries the metric index up,
-the demand list down, and edit-mode queries both ways, so the LeanSignal UI can
-read your full-fidelity local store without that store ever being exposed.
+the demand set down, and edit-mode queries both ways, so the LeanSignal UI can
+read your full-fidelity local stores without them ever being exposed.
 
 It runs on Kubernetes, Linux, macOS, and Windows, and is released under the
 **Apache 2.0** license.
@@ -22,8 +25,8 @@ It runs on Kubernetes, Linux, macOS, and Windows, and is released under the
 
 The agent is the edge half of LeanSignal's demand-driven **Value Cycle**. It
 sees everything your workloads emit and keeps it at full fidelity locally, but
-its filter forwards **nothing by default** — only the metrics a declared
-**demand** asks for ever leave your network. Central cost follows value, not
+its filters forward **nothing by default** — only the telemetry a declared
+**demand** asks for ever leaves your network. Central cost follows value, not
 volume, and the agent is the component that enforces it:
 
 <picture>
@@ -31,15 +34,18 @@ volume, and the agent is the component that enforces it:
   <img src="docs/assets/value-cycle-light.svg" alt="The Observability Value Cycle — the agent (this repository) filters at the edge; demands drive what is stored centrally" width="860">
 </picture>
 
-- **Everything** is written to the local VictoriaMetrics next to the agent.
+- **Everything** is written to the local store for each signal next to the agent —
+  metrics to VictoriaMetrics, logs to Loki, traces to Tempo.
 - The **edge controller** keeps one persistent, outbound gRPC stream to LeanSignal:
   it reports the discovered metric/timeseries **index**, receives the **demand
-  list**, and answers **edit-mode queries** the UI runs against the local store
-  (read-only, allow-listed — the store is never exposed to the internet).
-- The **demand filter** drops everything not on the demand list before metrics
-  reach the central dataplane — so the central store only holds what's asked for.
-  In production the agent remote-writes the demanded subset through **vmauth**,
-  authenticated by its agent key.
+  set** (metric names, log stream selectors, and trace resource selectors), and
+  answers **edit-mode queries** the UI runs against the local stores (read-only,
+  allow-listed — the stores are never exposed to the internet).
+- A **demand filter per signal** drops everything not demanded before it reaches
+  the central dataplane — so the central stores only hold what's asked for. In
+  production the agent remote-writes demanded metrics through **vmauth**, and
+  pushes demanded log streams and trace spans to the tenant Loki/Tempo through the
+  ingest ingress, all authenticated by its agent key.
 
 See [docs/architecture.md](docs/architecture.md) for the full design.
 
@@ -47,32 +53,34 @@ See [docs/architecture.md](docs/architecture.md) for the full design.
 
 An agent installs in one of two modes:
 
-- **central** (default) — the full agent above: local VictoriaMetrics, tracker,
-  demand filter, dataplane forwarding, and the gRPC control channel.
+- **central** (default) — the full agent above: co-located stores (VictoriaMetrics,
+  Loki, Tempo), the metrics tracker, per-signal demand filters, dataplane
+  forwarding, and the gRPC control channel.
 - **edge** — a lightweight OTLP **forwarder**. It collects host metrics, OTLP from
   local apps, and its own self-telemetry, stamps identity labels, and ships
-  everything as OTLP to a **central** agent. No local VM, tracker, demand filter,
-  or control channel. Selected by giving the central agent's OTLP endpoint at
-  install (`--central-url HOST:PORT` or `CENTRAL_AGENT_GRPC_URL`).
+  everything as OTLP to a **central** agent. No local stores, tracker, demand
+  filters, or control channel. Selected by giving the central agent's OTLP endpoint
+  at install (`--central-url HOST:PORT` or `CENTRAL_AGENT_GRPC_URL`).
 
 ```
    Host A (edge)  ─┐
-   Host B (edge)  ─┼─ OTLP ─▶  Host C (central) ─▶ local VM + demanded → dataplane
+   Host B (edge)  ─┼─ OTLP ─▶  Host C (central) ─▶ local stores + demanded → dataplane
    Host C (central)┘
 ```
 
 This fans many edge agents across networks into one central aggregation point.
 Every metric carries `leansignal_agent_name`, `host_name`, `os_type`, and
 `leansignal_mode` (`edge`/`central`) labels, so each source stays distinct in the
-shared store. The central
-agent's OTLP receiver is open and unauthenticated by design — keep it on a
-trusted/internal network. See [docs/configuration.md](docs/configuration.md).
+shared store. The central agent's OTLP receiver is open and unauthenticated by
+design — keep it on a trusted/internal network. See
+[docs/configuration.md](docs/configuration.md).
 
 ## Quick start
 
 > **Managing an install** — how to check service **status**, **start/stop/restart**
-> the agent and VictoriaMetrics, view **logs**, and **uninstall** is covered in the
-> per-OS guide for your platform:
+> the agent and its co-located stores (VictoriaMetrics, Loki, Tempo), view the
+> agent's **own logs**, and **uninstall** is covered in the per-OS guide for your
+> platform:
 > [Linux](docs/install-linux.md) · [macOS](docs/install-macos.md) ·
 > [Windows](docs/install-windows.md) · [Kubernetes](docs/install-kubernetes.md).
 
@@ -102,8 +110,9 @@ curl -fsSL https://raw.githubusercontent.com/LeanSignal/leansignal-agent/main/sc
   | sudo bash -s -- --agent-key YOUR_KEY --agent-name this-host --tenant YOUR_TENANT
 ```
 
-Installs the agent + local VictoriaMetrics and registers them as services
-(systemd / launchd). `--agent-name` labels this host's metrics. See
+Installs the agent + its co-located stores (VictoriaMetrics for metrics, Loki for
+logs, Tempo for traces) and registers them as services (systemd / launchd).
+`--agent-name` labels this host's telemetry. See
 [docs/install-linux.md](docs/install-linux.md) and
 [docs/install-macos.md](docs/install-macos.md).
 
@@ -117,8 +126,8 @@ See [docs/install-windows.md](docs/install-windows.md).
 
 ### Docker (trial)
 
-The fastest way to try the agent against a tenant — runs the agent and a local
-VictoriaMetrics as containers:
+The fastest way to try the agent against a tenant — runs the agent and its
+co-located stores (VictoriaMetrics, Loki, Tempo) as containers:
 
 ```bash
 export LEANSIGNAL_ENDPOINT=... LEANSIGNAL_AGENT_KEY=... LEANSIGNAL_DATAPLANE_ENDPOINT=...
@@ -127,11 +136,11 @@ docker compose -f deploy/docker/docker-compose.yaml up
 
 ## Upgrading
 
-The agent and its local VictoriaMetrics run as **separate services**, and VM's
-data lives in a fixed directory outside the binaries — so **upgrading the agent
-never stops VictoriaMetrics or touches its data**. That's the default. Upgrading
-VictoriaMetrics is a separate, snapshot-first, opt-in step. Both paths roll back
-automatically if the service doesn't come back healthy. Full guide:
+The agent and its co-located stores run as **separate services**, and each
+store's data lives in a fixed directory outside the binaries — so **upgrading the
+agent never stops those stores or touches their data**. That's the default.
+Upgrading VictoriaMetrics is a separate, snapshot-first, opt-in step. Both paths
+roll back automatically if the service doesn't come back healthy. Full guide:
 [docs/upgrading.md](docs/upgrading.md).
 
 ### Kubernetes (Helm)
@@ -141,7 +150,7 @@ helm upgrade leansignal-agent oci://ghcr.io/leansignal/charts/leansignal-agent \
   --version <chart-version> --reuse-values
 ```
 
-Bumps the agent image; the VictoriaMetrics StatefulSet + PVC are retained.
+Bumps the agent image; the co-located store StatefulSets + PVCs are retained.
 
 ### Linux / macOS
 
@@ -166,9 +175,9 @@ curl -fsSL https://raw.githubusercontent.com/LeanSignal/leansignal-agent/main/sc
 
 Full docs live in [docs/](docs/index.md):
 
-- [Usage](docs/usage.md) — send metrics, query the local store, how demand works
+- [Usage](docs/usage.md) — send telemetry, query the local stores, how demand works
 - [Configuration](docs/configuration.md) — settings, env vars, pipelines
-- [Upgrading](docs/upgrading.md) — agent-only vs VM upgrades, data safety, rollback
+- [Upgrading](docs/upgrading.md) — agent-only vs store upgrades, data safety, rollback
 - [Agent own telemetry](docs/own-telemetry.md) — the self-monitoring metrics the agent exposes and what to alert on
 - [Architecture](docs/architecture.md) · [Components](docs/components.md)
 - [Development guide](docs/development.md) · [Releasing](docs/releasing.md)
@@ -207,4 +216,5 @@ the full local/cloud run loop.
 ## License
 
 Apache 2.0 — see [LICENSE](LICENSE) and [NOTICE](NOTICE). Bundles OpenTelemetry
-Collector and VictoriaMetrics (both Apache 2.0).
+Collector, and pairs with VictoriaMetrics, Loki, and Tempo as co-located stores
+(all Apache 2.0).

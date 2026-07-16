@@ -19,6 +19,7 @@ package leansignaldemandfilter
 
 import (
 	"context"
+	"sync"
 
 	"go.opentelemetry.io/collector/component"
 	"go.opentelemetry.io/collector/consumer"
@@ -35,6 +36,17 @@ type DemandProvider interface {
 	GetDemands() []string
 }
 
+// MetricSelectorProvider is the optional sibling interface for
+// selector-granular metric demand: normalized series selectors
+// (`{__name__="...",label=~"...",...}` — the log/trace selector grammar).
+// When the provider satisfies it AND the list is non-empty, the filter runs
+// in selector mode (datapoint granularity); otherwise it falls back to the
+// name-level demand list from DemandProvider, keeping backward compatibility
+// with servers that only send metric names.
+type MetricSelectorProvider interface {
+	GetMetricSelectors() []string
+}
+
 // demandFilterProcessor filters OTLP metrics by the current demand list held in
 // the leansignal_edge_controller extension.  Only metrics whose Prometheus-style
 // name(s) appear in the demand list are forwarded to the next consumer; all
@@ -44,10 +56,17 @@ type DemandProvider interface {
 // If no DemandProvider extension is found, or if the demand list is empty, ALL
 // metrics are blocked — vms-dataplane only ever receives what is explicitly demanded.
 type demandFilterProcessor struct {
-	logger   *zap.Logger
-	next     consumer.Metrics
-	cfg      *Config
-	provider DemandProvider // resolved in Start() from the registered extension
+	logger           *zap.Logger
+	next             consumer.Metrics
+	cfg              *Config
+	provider         DemandProvider         // resolved in Start() from the registered extension
+	selectorProvider MetricSelectorProvider // resolved in Start(); nil when the extension predates selectors
+
+	// Compiled-selector cache: selectors are compiled once per demand-list
+	// change (keyed by the joined raw list) and reused for every batch.
+	selMu        sync.Mutex
+	selCachedKey string
+	selCachedSet *compiledSelectorSet
 }
 
 func newDemandFilterProcessor(
@@ -70,6 +89,10 @@ func (p *demandFilterProcessor) Start(_ context.Context, host component.Host) er
 		if dp, ok := ext.(DemandProvider); ok {
 			p.provider = dp
 			p.logger.Info("demand filter: connected to DemandProvider extension")
+			if sp, ok := ext.(MetricSelectorProvider); ok {
+				p.selectorProvider = sp
+				p.logger.Info("demand filter: extension also provides metric selectors")
+			}
 			return nil
 		}
 	}
@@ -106,6 +129,15 @@ func (p *demandFilterProcessor) ConsumeMetrics(ctx context.Context, md pmetric.M
 			zap.Int("allowed", 0),
 		)
 		return nil
+	}
+
+	// Selector mode: when the demand set carries metric selectors, filter at
+	// datapoint (series) granularity. A non-empty name list without selectors
+	// (old server) falls through to name-level filtering exactly as before.
+	if p.selectorProvider != nil {
+		if rawSelectors := p.selectorProvider.GetMetricSelectors(); len(rawSelectors) > 0 {
+			return p.consumeSelectorMode(ctx, md, rawSelectors, totalMetrics)
+		}
 	}
 
 	demands := p.provider.GetDemands()
@@ -156,6 +188,39 @@ func (p *demandFilterProcessor) ConsumeMetrics(ctx context.Context, md pmetric.M
 		zap.Int("allowed", allowedMetrics),
 		zap.Int("dropped", totalMetrics-allowedMetrics),
 		zap.Int("demand_size", len(demands)),
+	)
+
+	return p.next.ConsumeMetrics(ctx, md)
+}
+
+// consumeSelectorMode filters the batch at datapoint granularity against the
+// demanded metric selectors (see selectors.go). FAIL-CLOSED like the log and
+// trace filters: a non-empty selector list in which every selector is
+// unparseable blocks everything.
+func (p *demandFilterProcessor) consumeSelectorMode(
+	ctx context.Context,
+	md pmetric.Metrics,
+	rawSelectors []string,
+	totalMetrics int,
+) error {
+	set := p.parsedSelectors(rawSelectors)
+	if set.empty() {
+		p.logger.Warn("demand filter: no parseable metric selectors, blocking all metrics",
+			zap.Int("received", totalMetrics),
+			zap.Int("allowed", 0),
+			zap.Int("demand_size", len(rawSelectors)),
+		)
+		return nil
+	}
+
+	p.filterBySelectors(md, set)
+
+	allowedMetrics := md.MetricCount()
+	p.logger.Info("demand filter: batch filtered",
+		zap.Int("received", totalMetrics),
+		zap.Int("allowed", allowedMetrics),
+		zap.Int("dropped", totalMetrics-allowedMetrics),
+		zap.Int("demand_size", len(rawSelectors)),
 	)
 
 	return p.next.ConsumeMetrics(ctx, md)

@@ -20,6 +20,8 @@ package leansignaledgecontroller
 import (
 	"sort"
 	"strings"
+
+	selectormatch "github.com/leansignal/leansignal-agent/components/selectormatch"
 )
 
 // expandDemandNames expands a demand list (metric names extracted from PromQL)
@@ -90,6 +92,135 @@ func diagnoseDemand(demands []string, knownNames map[string]struct{}) (matched, 
 			matched = append(matched, d)
 		} else {
 			missing = append(missing, d)
+		}
+	}
+	sort.Strings(matched)
+	sort.Strings(missing)
+	return matched, missing
+}
+
+// ---------------------------------------------------------------------------
+// Selector-granular demand (DemandSet.metric_selectors) — NAME-LEVEL matching.
+//
+// TODO(metric-selectors): this matching is name-level only. Full
+// selector-awareness (evaluating label matchers per known series) needs the
+// per-series labels, but KnownTimeseriesCache deliberately does NOT retain
+// them — only the metric name plus the sample ring buffer (labels exist
+// transiently in DiscoveredTimeseriesCache until synced). Until labels are
+// retained in the known cache, Ping.demanded_known_cache_size and the
+// diagnosis may OVERCOUNT for selectors whose label matchers reduce the
+// series set (never undercount: the __name__ constraint is applied exactly).
+// ---------------------------------------------------------------------------
+
+// nameSelector is the __name__-only view of one demanded metric selector.
+type nameSelector struct {
+	raw          string
+	parsed       bool // false → unparseable, demands nothing
+	nameMatchers []*selectormatch.Matcher
+}
+
+// parseNameSelectors extracts the __name__ matchers of each selector.
+// Unparseable selectors are kept (parsed=false) so diagnosis can report them
+// as missing rather than silently dropping them.
+func parseNameSelectors(selectors []string) []nameSelector {
+	out := make([]nameSelector, 0, len(selectors))
+	for _, raw := range selectors {
+		ns := nameSelector{raw: raw}
+		if sel, err := selectormatch.Parse(raw); err == nil {
+			ns.parsed = true
+			for _, m := range sel.Matchers {
+				if m.Name == "__name__" {
+					ns.nameMatchers = append(ns.nameMatchers, m)
+				}
+			}
+		}
+		out = append(out, ns)
+	}
+	return out
+}
+
+// matchesSeriesName reports whether a stored series named n would be forwarded
+// (at name level) under this selector. It mirrors the demand filter's family
+// expansion inverted to the stored-name side: a selector matching any
+// component of n's histogram/summary family keeps the whole family, so n is
+// demanded when the selector's __name__ constraint accepts any family variant
+// of n (see familyNameVariants). A selector without a __name__ matcher
+// constrains labels only and accepts every name.
+func (ns nameSelector) matchesSeriesName(n string) bool {
+	if !ns.parsed {
+		return false
+	}
+	for _, v := range familyNameVariants(n) {
+		all := true
+		for _, m := range ns.nameMatchers {
+			if !m.MatchValue(v) {
+				all = false
+				break
+			}
+		}
+		if all {
+			return true
+		}
+	}
+	return false
+}
+
+// familyNameVariants returns the demand names whose (name-level) match would
+// cause series name n to be stored — the inverse of expandDemandNames: for
+// every variant v here, n ∈ expandDemandNames([v]).
+func familyNameVariants(n string) []string {
+	base := n
+	suffix := ""
+	for _, s := range []string{"_bucket", "_sum", "_count"} {
+		if strings.HasSuffix(n, s) && len(n) > len(s) {
+			base = strings.TrimSuffix(n, s)
+			suffix = s
+			break
+		}
+	}
+	variants := []string{n, base + "_bucket", base + "_sum", base + "_count"}
+	if suffix != "_bucket" && base != n {
+		// A bare-name demand stores base/_sum/_count (summary) but never
+		// _bucket — classic histograms are not matched by base name.
+		variants = append(variants, base)
+	}
+	return variants
+}
+
+// selectorDemandedNames returns the subset of knownNames demanded (at name
+// level) by any of the selectors — the selector analog of expandDemandNames,
+// intersected with the known-name universe so regex name matchers can be
+// evaluated.
+func selectorDemandedNames(selectors []string, knownNames map[string]struct{}) map[string]struct{} {
+	parsed := parseNameSelectors(selectors)
+	out := make(map[string]struct{}, len(knownNames))
+	for n := range knownNames {
+		for _, ns := range parsed {
+			if ns.matchesSeriesName(n) {
+				out[n] = struct{}{}
+				break
+			}
+		}
+	}
+	return out
+}
+
+// diagnoseDemandSelectors partitions the selector list into selectors that
+// match at least one known series name (matched) and selectors that match
+// none — or are unparseable (missing). Both returned slices are sorted.
+func diagnoseDemandSelectors(selectors []string, knownNames map[string]struct{}) (matched, missing []string) {
+	for _, ns := range parseNameSelectors(selectors) {
+		found := false
+		for n := range knownNames {
+			if ns.matchesSeriesName(n) {
+				found = true
+				break
+			}
+		}
+		if found {
+			matched = append(matched, ns.raw)
+		} else {
+			missing = append(missing, ns.raw)
 		}
 	}
 	sort.Strings(matched)

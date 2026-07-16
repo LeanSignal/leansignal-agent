@@ -48,17 +48,6 @@ receivers:
       filesystem: {}
       network: {}
       paging: {}
-
-  # Scrape the collector's OWN internal telemetry (otelcol_* self-metrics); these
-  # are forwarded to the central agent too, tagged mode=edge.
-  prometheus/internal:
-    config:
-      scrape_configs:
-        - job_name: otelcol-self
-          scrape_interval: 15s
-          static_configs:
-            - targets: [127.0.0.1:8888]
-
 processors:
   # Stamp host identity (host.name, os.type). override:false so an OTLP client
   # that already set its own host.name is not clobbered.
@@ -98,20 +87,43 @@ service:
   pipelines:
     # Everything: enriched, then forwarded to the central agent as OTLP.
     metrics/all:
-      receivers: [otlp, hostmetrics, prometheus/internal]
+      receivers: [otlp, hostmetrics]
       processors: [resourcedetection, resource, batch]
       exporters: [otlp/central]
 
   telemetry:
-    # Expose the collector's own metrics on 127.0.0.1:8888 so the
-    # prometheus/internal receiver above can scrape them.
+    # SELF-MONITORING. The collector's OWN telemetry — metrics, logs AND traces —
+    # is pushed via OTLP to the agent's own loopback OTLP receiver (127.0.0.1:4317).
+    # It then flows through the same */all pipelines as everything else: written in
+    # full to the local store (queryable via "Available") and forwarded to the
+    # tenant only when demanded ("Stored"). The agent's own service.name is
+    # "leansignal-agent".
+    #
+    # Logs ALSO keep going to stderr/journald (adding OTLP does not silence the
+    # console). `metrics.level: detailed` adds the gRPC/HTTP latency histograms on
+    # top of the normal otelcol_* counters. The collector emits very few internal
+    # spans by design, so `traces` yields little volume today (wired for future use).
     metrics:
       level: detailed
       readers:
-        - pull:
+        - periodic:
+            interval: 15000        # milliseconds (15s), matching the old scrape
             exporter:
-              prometheus:
-                host: 127.0.0.1
-                port: 8888
+              otlp:
+                protocol: grpc
+                endpoint: http://127.0.0.1:4317
     logs:
       level: info
+      processors:
+        - batch:
+            exporter:
+              otlp:
+                protocol: grpc
+                endpoint: http://127.0.0.1:4317
+    traces:
+      processors:
+        - batch:
+            exporter:
+              otlp:
+                protocol: grpc
+                endpoint: http://127.0.0.1:4317

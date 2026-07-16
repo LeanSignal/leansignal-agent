@@ -22,7 +22,6 @@ import (
 	"sort"
 	"strconv"
 	"strings"
-	"unicode"
 
 	"go.opentelemetry.io/collector/component"
 	"go.opentelemetry.io/collector/consumer"
@@ -314,82 +313,16 @@ func (p *metricsTrackerProcessor) processPromSeries(
 	}
 }
 
+// buildPromLabelMap flattens one series' Prometheus label set. The actual
+// translation lives in internal/promnaming (BuildSeriesLabels) so the tracker
+// and the demand filter share one source of truth for label-space parity with
+// the prometheusremotewrite exporter.
 func buildPromLabelMap(
 	resAttrs pcommon.Map,
 	pointAttrs pcommon.Map,
 	extraLabels map[string]string,
 ) map[string]string {
-	labels := make(map[string]string, resAttrs.Len()+pointAttrs.Len()+len(extraLabels)+2)
-
-	// Resource attributes first (data point attributes can override).
-	resAttrs.Range(func(k string, v pcommon.Value) bool {
-		labels[normalizePromLabelName(k)] = v.AsString()
-		return true
-	})
-
-	// Data point attributes override resource attributes on collision.
-	pointAttrs.Range(func(k string, v pcommon.Value) bool {
-		labels[normalizePromLabelName(k)] = v.AsString()
-		return true
-	})
-
-	// Match Prometheus exporter behavior for job/instance.
-	// If they are already present in the datapoint attributes, we keep them.
-	if _, ok := labels["job"]; !ok {
-		if job := jobLabelFromResource(resAttrs); job != "" {
-			labels["job"] = job
-		}
-	}
-	if _, ok := labels["instance"]; !ok {
-		if inst := instanceLabelFromResource(resAttrs); inst != "" {
-			labels["instance"] = inst
-		}
-	}
-
-	// Extra labels (e.g. le/quantile) last.
-	for k, v := range extraLabels {
-		labels[normalizePromLabelName(k)] = v
-	}
-
-	return labels
-}
-
-func jobLabelFromResource(resAttrs pcommon.Map) string {
-	// Prometheus remote-write exporter uses:
-	//   job      = <service.name> or <service.namespace>/<service.name>
-	//   instance = <service.instance.id>
-	// when generating target_info and as default labels.
-	// See Prometheus OTLP guide and OTel Collector PRW exporter docs.
-	//
-	// If either attribute is missing, we fall back gracefully.
-	svcName := getAttrAsString(resAttrs, "service.name")
-	if svcName == "" {
-		return ""
-	}
-	svcNS := getAttrAsString(resAttrs, "service.namespace")
-	if svcNS == "" {
-		return svcName
-	}
-	return svcNS + "/" + svcName
-}
-
-func instanceLabelFromResource(resAttrs pcommon.Map) string {
-	if inst := getAttrAsString(resAttrs, "service.instance.id"); inst != "" {
-		return inst
-	}
-	// Pragmatic fallback: if a service instance id is not set, use host.name if present.
-	if host := getAttrAsString(resAttrs, "host.name"); host != "" {
-		return host
-	}
-	return ""
-}
-
-func getAttrAsString(m pcommon.Map, key string) string {
-	v, ok := m.Get(key)
-	if !ok {
-		return ""
-	}
-	return v.AsString()
+	return promnaming.BuildSeriesLabels(resAttrs, pointAttrs, extraLabels)
 }
 
 func buildPromSeriesFingerprint(metric string, labels map[string]string) string {
@@ -442,30 +375,4 @@ func hasHistogramSum(dp pmetric.HistogramDataPoint) bool {
 		return hs.HasSum()
 	}
 	return true
-}
-
-// normalizePromLabelName implements (a subset of) the OpenTelemetry Collector's
-// Prometheus label normalization (dots become underscores):
-//   - Replace any non-alphanumeric rune with '_'
-//   - If label starts with a digit, prefix "key_"
-//   - If label starts with '_' (but not "__"), prefix "key" (yielding "key_<label>")
-func normalizePromLabelName(label string) string {
-	if label == "" {
-		return label
-	}
-
-	label = strings.Map(func(r rune) rune {
-		if unicode.IsLetter(r) || unicode.IsDigit(r) {
-			return r
-		}
-		return '_'
-	}, label)
-
-	if unicode.IsDigit(rune(label[0])) {
-		label = "key_" + label
-	} else if strings.HasPrefix(label, "_") && !strings.HasPrefix(label, "__") {
-		label = "key" + label
-	}
-
-	return label
 }

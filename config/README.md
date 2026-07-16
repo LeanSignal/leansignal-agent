@@ -28,10 +28,13 @@ These are provided by the service unit / installer, never hard-coded in the file
 |----------|---------|
 | `LEANSIGNAL_ENDPOINT` | gRPC control-plane URL (`api.leansignal.com:443`) |
 | `LEANSIGNAL_AGENT_KEY` | Per-agent auth key (secret) |
-| `LEANSIGNAL_DATAPLANE_ENDPOINT` | Prometheus remote-write URL of the central store |
+| `LEANSIGNAL_DATAPLANE_ENDPOINT` | Prometheus remote-write URL of the central metrics store |
+| `LEANSIGNAL_LOKI_ENDPOINT` | Tenant logs-ingest base URL (demanded log streams push here) |
+| `LEANSIGNAL_TEMPO_ENDPOINT` | Tenant traces-ingest base URL (demanded spans push here) |
 
-The local VictoriaMetrics endpoint defaults to `http://127.0.0.1:8428/api/v1/write`
-(the single-node VM installed next to the agent).
+Each signal has a co-located local store installed next to the agent, defaulting
+to loopback: VictoriaMetrics for metrics (`http://127.0.0.1:8428/api/v1/write`),
+Loki for logs, and Tempo for traces.
 
 See [`../docs/configuration.md`](../docs/configuration.md) for the full reference,
-including the demand/index model and how the two pipelines relate.
+including the demand/index model and how the per-signal pipelines relate.

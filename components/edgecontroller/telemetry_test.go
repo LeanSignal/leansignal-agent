@@ -81,7 +81,7 @@ func TestRegisterMetrics_ObservesState(t *testing.T) {
 	e.knownTimeseriesCache.UpdateTimeseries(HashKey{1}, &TimeseriesEntry{MetricName: "up", Samples: 1})
 	e.knownTimeseriesCache.UpdateTimeseries(HashKey{2}, &TimeseriesEntry{MetricName: "go_goroutines", Samples: 1})
 	e.discoveredTimeseriesCache.Add(HashKey{3}, &TimeseriesEntry{MetricName: "node_load1"})
-	e.demandTimeseriesCache.UpdateDemands([]string{"a", "b", "c"}, nil, nil, 42)
+	e.demandTimeseriesCache.UpdateDemands([]string{"a", "b", "c"}, nil, nil, nil, 42)
 
 	reader, mp := newTestMeter()
 	if err := e.registerMetrics(mp); err != nil {

@@ -36,9 +36,11 @@ import (
 	agentv1 "github.com/leansignal/leansignal-agent/proto/gen/leansignal/agent/v1"
 )
 
-// agentVersion is reported to the backend in the Hello message.
-// TODO: wire to build info.
-const agentVersion = "0.5.0"
+// defaultAgentVersion is reported to the backend in the Hello message when the
+// collector build version is unavailable (e.g. unit tests). Real builds report
+// the collector's BuildInfo.Version — the manifest `dist.version`, overridden by
+// the release tag at goreleaser time — wired in by the factory.
+const defaultAgentVersion = "dev"
 
 // maxMessageBytes bounds a single control message (index batches can be large).
 const maxMessageBytes = 16 * 1024 * 1024
@@ -49,6 +51,11 @@ const maxMessageBytes = 16 * 1024 * 1024
 type edgeControllerExtension struct {
 	logger *zap.Logger
 	config *Config
+
+	// version reported to the backend in the Hello — the collector's build
+	// version, set by the factory from BuildInfo (defaultAgentVersion if unset,
+	// e.g. in unit tests).
+	version string
 
 	// meterProvider is the collector's internal MeterProvider, set by the
 	// factory. nil in unit tests, in which case self-metrics are not registered.
@@ -81,6 +88,7 @@ func newEdgeControllerExtension(logger *zap.Logger, config *Config) *edgeControl
 	return &edgeControllerExtension{
 		logger:                    logger,
 		config:                    config,
+		version:                   defaultAgentVersion,
 		knownTimeseriesCache:      NewKnownTimeseriesCache(logger),
 		discoveredTimeseriesCache: NewDiscoveredTimeseriesCache(logger),
 		demandTimeseriesCache:     NewDemandTimeseriesCache(logger),
@@ -151,6 +159,13 @@ func (e *edgeControllerExtension) GetLogDemands() []string {
 // leansignaltracedemandfilter.
 func (e *edgeControllerExtension) GetTraceDemands() []string {
 	return e.demandTimeseriesCache.GetDemands().TraceSelectors
+}
+
+// GetMetricSelectors returns the current list of demanded (normalized) metric
+// series selectors. Satisfies the MetricSelectorProvider interface defined in
+// leansignaldemandfilter.
+func (e *edgeControllerExtension) GetMetricSelectors() []string {
+	return e.demandTimeseriesCache.GetDemands().MetricSelectors
 }
 
 // ReceiveTimeseriesBatch implements leansignalmetricsindex.TimeseriesReceiver.
@@ -250,7 +265,7 @@ func (e *edgeControllerExtension) connect(ctx context.Context) error {
 
 	// Announce ourselves; the server pushes the current demand list in response.
 	if err := e.sendAgentMessage(&agentv1.AgentMessage{
-		Body: &agentv1.AgentMessage_Hello{Hello: &agentv1.Hello{Version: agentVersion}},
+		Body: &agentv1.AgentMessage_Hello{Hello: &agentv1.Hello{Version: e.version}},
 	}); err != nil {
 		return err
 	}
@@ -267,6 +282,17 @@ func (e *edgeControllerExtension) connect(ctx context.Context) error {
 	return err
 }
 
+// demandedNameSet returns the set of known series names the demand filter
+// would forward: selector-derived when metric selectors are demanded (matched
+// at NAME level against the known-name universe — see the TODO in
+// demand_matcher.go), otherwise the classic name-family expansion.
+func (e *edgeControllerExtension) demandedNameSet(demand DemandTimeseriesSnapshot) map[string]struct{} {
+	if len(demand.MetricSelectors) > 0 {
+		return selectorDemandedNames(demand.MetricSelectors, e.knownTimeseriesCache.MetricNameSet())
+	}
+	return expandDemandNames(demand.Timeseries)
+}
+
 // buildPing assembles the heartbeat payload from the current cache state.
 func (e *edgeControllerExtension) buildPing() *agentv1.Ping {
 	demand := e.demandTimeseriesCache.GetDemands()
@@ -276,7 +302,7 @@ func (e *edgeControllerExtension) buildPing() *agentv1.Ping {
 		PendingBackendUpdates:  int32(e.knownTimeseriesCache.GetPendingBackendUpdates()),
 		DemandCacheSize:        int32(len(demand.Timeseries)),
 		DemandLastUpdate:       demand.LastUpdate,
-		DemandedKnownCacheSize: int32(e.knownTimeseriesCache.CountDemanded(expandDemandNames(demand.Timeseries))),
+		DemandedKnownCacheSize: int32(e.knownTimeseriesCache.CountDemanded(e.demandedNameSet(demand))),
 		DemandHash:             demand.DemandHash,
 	}
 }
@@ -295,14 +321,25 @@ type diagnosis struct {
 
 func (e *edgeControllerExtension) buildDiagnosis() diagnosis {
 	demand := e.demandTimeseriesCache.GetDemands()
-	expanded := expandDemandNames(demand.Timeseries)
-	matched, missing := diagnoseDemand(demand.Timeseries, e.knownTimeseriesCache.MetricNameSet())
+	knownNames := e.knownTimeseriesCache.MetricNameSet()
+
+	// Selector-granular demand: diagnose the selectors themselves (name-level
+	// matching — see the TODO in demand_matcher.go). Otherwise the name list.
+	demandList := demand.Timeseries
+	var matched, missing []string
+	if len(demand.MetricSelectors) > 0 {
+		demandList = demand.MetricSelectors
+		matched, missing = diagnoseDemandSelectors(demand.MetricSelectors, knownNames)
+	} else {
+		matched, missing = diagnoseDemand(demand.Timeseries, knownNames)
+	}
+
 	return diagnosis{
-		demand:         demand.Timeseries,
+		demand:         demandList,
 		matched:        matched,
 		missing:        missing,
 		knownSeries:    e.knownTimeseriesCache.GetSize(),
-		demandedSeries: e.knownTimeseriesCache.CountDemanded(expanded),
+		demandedSeries: e.knownTimeseriesCache.CountDemanded(e.demandedNameSet(demand)),
 		demandHash:     demand.DemandHash,
 	}
 }
@@ -357,12 +394,14 @@ func (e *edgeControllerExtension) handleServerMessage(msg *agentv1.ServerMessage
 		metrics := body.DemandSet.GetMetrics()
 		logSelectors := body.DemandSet.GetLogSelectors()
 		traceSelectors := body.DemandSet.GetTraceSelectors()
+		metricSelectors := body.DemandSet.GetMetricSelectors()
 		e.logger.Info("COMMAND_RECEIVED: demand_set",
 			zap.Int("metrics_count", len(metrics)),
 			zap.Int("log_selectors_count", len(logSelectors)),
 			zap.Int("trace_selectors_count", len(traceSelectors)),
+			zap.Int("metric_selectors_count", len(metricSelectors)),
 		)
-		e.demandTimeseriesCache.UpdateDemands(metrics, logSelectors, traceSelectors, body.DemandSet.GetHash())
+		e.demandTimeseriesCache.UpdateDemands(metrics, logSelectors, traceSelectors, metricSelectors, body.DemandSet.GetHash())
 		e.replyCommand(msg.GetCorrelationId(), true, "demand_set applied")
 	case *agentv1.ServerMessage_GetStatus:
 		e.logger.Info("COMMAND_RECEIVED: get_status")

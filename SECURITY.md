@@ -29,7 +29,9 @@ published.
 
 ## Scope
 
-This repository packages an OpenTelemetry Collector distribution and bundles
-VictoriaMetrics binaries downloaded from upstream. Vulnerabilities in upstream
-OpenTelemetry or VictoriaMetrics code should also be reported to their
-respective maintainers; we will track and incorporate upstream fixes.
+This repository packages an OpenTelemetry Collector distribution and ships the
+agent alongside co-located telemetry stores: it bundles VictoriaMetrics binaries
+downloaded from upstream, and its installer pulls Loki and Tempo from their
+upstream releases. Vulnerabilities in upstream OpenTelemetry, VictoriaMetrics,
+Loki, or Tempo code should also be reported to their respective maintainers; we
+will track and incorporate upstream fixes.

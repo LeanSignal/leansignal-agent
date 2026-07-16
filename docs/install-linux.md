@@ -176,7 +176,7 @@ key, edit `LEANSIGNAL_AGENT_KEY`. Or just re-run the installer with
 
 ## Upgrading
 
-Upgrade just the agent — VictoriaMetrics and its data are untouched:
+Upgrade just the agent — the local stores (VictoriaMetrics, Loki, Tempo) and their data are untouched:
 ```bash
 curl -fsSL https://raw.githubusercontent.com/LeanSignal/leansignal-agent/main/scripts/install/upgrade.sh | sudo bash
 ```
@@ -184,14 +184,14 @@ See [Upgrading](upgrading.md) for agent-only vs VM upgrades, data safety, and ro
 
 ## Uninstall
 
-Removes both binaries + both services. Keeps config + VM data unless you pass `--purge`.
+Removes all four binaries + services (agent, VictoriaMetrics, Loki, Tempo). Keeps config + local store data unless you pass `--purge`.
 
 **Download, then run** (clearest — `--purge` is a normal script argument):
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/LeanSignal/leansignal-agent/main/scripts/install/uninstall.sh -o uninstall.sh
-sudo bash uninstall.sh            # keep config + VM data
-sudo bash uninstall.sh --purge    # also delete config + VM data
+sudo bash uninstall.sh            # keep config + local store data
+sudo bash uninstall.sh --purge    # also delete config + local store data
 ```
 
 One-liner equivalent — `--purge` **must** come after `-s --` (that hands it to the

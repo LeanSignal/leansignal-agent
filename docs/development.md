@@ -8,7 +8,7 @@ internal workflow in more detail.
 
 | Path | What it is |
 |------|-----------|
-| `components/` | the only first-party Go code (3 components + shared lib) |
+| `components/` | the only first-party Go code (5 components + shared lib) |
 | `manifest.yaml` | OCB manifest; assembles the full collector distribution |
 | `_build/` | generated distribution (gitignored) — never edit by hand |
 | `deploy/helm`, `deploy/docker` | Kubernetes chart + compose trial |
@@ -53,7 +53,9 @@ make helm-lint helm-template
 make shellcheck
 ```
 
-Fast iteration on component code doesn't need OCB: `go test -race ./components/...`.
+Fast iteration on component code doesn't need OCB: `go test -race ./components/...`
+— which now exercises the log and trace demand filters alongside the metrics
+tracker and filter.
 
 ### Pre-commit hook (lint locally, not in CI)
 
@@ -239,5 +241,6 @@ and the Helm chart, and publishes the GitHub Release.
 ## Versioning
 
 - Agent: SemVer tags `vMAJOR.MINOR.PATCH`.
-- The upstream OpenTelemetry Collector base is pinned in `manifest.yaml`;
-  VictoriaMetrics in `VM_VERSION`. Bump those deliberately (their own PRs).
+- The upstream OpenTelemetry Collector base is pinned in `manifest.yaml`; the
+  co-located stores in `VM_VERSION`, `LOKI_VERSION`, and `TEMPO_VERSION`. Bump
+  those deliberately (their own PRs).

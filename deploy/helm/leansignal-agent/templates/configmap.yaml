@@ -59,16 +59,6 @@ data:
           grpc:
             endpoint: 0.0.0.0:3600
     {{- end }}
-      # Scrape the collector's OWN internal telemetry (otelcol_* self-metrics)
-      # exposed on the service.telemetry.metrics endpoint below (in-pod loopback).
-      prometheus/internal:
-        config:
-          scrape_configs:
-            - job_name: otelcol-self
-              scrape_interval: 15s
-              static_configs:
-                - targets: [127.0.0.1:8888]
-
     processors:
       memory_limiter:
         check_interval: 1s
@@ -234,17 +224,34 @@ data:
           exporters: [otlp/central]
     {{- end }}
       telemetry:
-        # Expose the collector's own metrics on 127.0.0.1:8888 so the
-        # prometheus/internal receiver above can scrape them. `detailed` adds the
-        # gRPC/HTTP client+server latency histograms on top of the normal counters.
+        # SELF-MONITORING. The collector's OWN telemetry — metrics, logs AND
+        # traces — is pushed via OTLP to the pod's own loopback OTLP receiver
+        # (127.0.0.1:4317), flowing through the same */all pipelines as everything
+        # else: full to the local store ("Available"), forwarded to the tenant only
+        # when demanded ("Stored"). service.name is "leansignal-agent". Logs also
+        # keep going to stderr for `kubectl logs`.
         metrics:
           level: detailed
           readers:
-            - pull:
+            - periodic:
+                interval: 15000
                 exporter:
-                  prometheus:
-                    host: 127.0.0.1
-                    port: 8888
+                  otlp:
+                    protocol: grpc
+                    endpoint: http://127.0.0.1:4317
         logs:
           level: {{ .Values.logLevel }}
+          processors:
+            - batch:
+                exporter:
+                  otlp:
+                    protocol: grpc
+                    endpoint: http://127.0.0.1:4317
+        traces:
+          processors:
+            - batch:
+                exporter:
+                  otlp:
+                    protocol: grpc
+                    endpoint: http://127.0.0.1:4317
 {{- end }}

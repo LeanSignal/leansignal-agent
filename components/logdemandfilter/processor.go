@@ -26,6 +26,8 @@ import (
 	"go.opentelemetry.io/collector/consumer"
 	"go.opentelemetry.io/collector/pdata/plog"
 	"go.uber.org/zap"
+
+	selectormatch "github.com/leansignal/leansignal-agent/components/selectormatch"
 )
 
 // LogDemandProvider is the interface the filter expects the
@@ -57,7 +59,7 @@ type logDemandFilterProcessor struct {
 	// (keyed by the joined raw list) and reused for every subsequent batch.
 	mu           sync.Mutex
 	cachedKey    string
-	cachedParsed []*selector
+	cachedParsed []*selectormatch.Selector
 }
 
 func newLogDemandFilterProcessor(
@@ -142,7 +144,7 @@ func (p *logDemandFilterProcessor) ConsumeLogs(ctx context.Context, ld plog.Logs
 	ld.ResourceLogs().RemoveIf(func(rl plog.ResourceLogs) bool {
 		labels := streamLabels(rl.Resource().Attributes())
 		for _, sel := range selectors {
-			if sel.matches(labels) {
+			if sel.Matches(labels) {
 				return false // keep
 			}
 		}
@@ -169,7 +171,7 @@ func (p *logDemandFilterProcessor) ConsumeLogs(ctx context.Context, ld plog.Logs
 // re-parsing only when the list changed since the previous batch (cache keyed
 // by the joined raw list).  Selectors that fail to parse are skipped with a
 // warning so one bad selector cannot poison the rest of the demand set.
-func (p *logDemandFilterProcessor) parsedSelectors(raw []string) []*selector {
+func (p *logDemandFilterProcessor) parsedSelectors(raw []string) []*selectormatch.Selector {
 	key := strings.Join(raw, "\x00")
 
 	p.mu.Lock()
@@ -178,9 +180,9 @@ func (p *logDemandFilterProcessor) parsedSelectors(raw []string) []*selector {
 		return p.cachedParsed
 	}
 
-	parsed := make([]*selector, 0, len(raw))
+	parsed := make([]*selectormatch.Selector, 0, len(raw))
 	for _, s := range raw {
-		sel, err := parseSelector(s)
+		sel, err := selectormatch.Parse(s)
 		if err != nil {
 			p.logger.Warn("log demand filter: skipping unparseable selector",
 				zap.String("selector", s),

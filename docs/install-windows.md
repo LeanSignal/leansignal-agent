@@ -1,7 +1,15 @@
 # Install on Windows
 
-Installs the agent and a co-located VictoriaMetrics as **Windows services**.
-Run from an **elevated** (Administrator) PowerShell. amd64 is supported.
+Installs the agent and a co-located VictoriaMetrics (local metrics store) as
+**Windows services**. Run from an **elevated** (Administrator) PowerShell. amd64
+is supported.
+
+> The agent collects **telemetry** — metrics, logs, and traces — and its OTLP
+> endpoints accept all three. On Windows, though, only the co-located **metrics**
+> store (VictoriaMetrics) is installed: the co-located log and trace stores
+> (Loki, Tempo) are **Linux-only for now**, so logs and traces are not yet stored
+> locally or forwarded to LeanSignal from a Windows install. Run the agent on
+> **Linux** for full logs/traces support (see [install-linux.md](install-linux.md)).
 
 ## Install
 
