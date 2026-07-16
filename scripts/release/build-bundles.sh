@@ -21,6 +21,10 @@ cd "$REPO_ROOT"
 
 VERSION="${VERSION:-$(git describe --tags --always 2>/dev/null | sed 's/^v//')}"
 VM_VERSION="${VM_VERSION:-$(cat VM_VERSION 2>/dev/null || true)}"
+# Loki/Tempo are NOT bundled (install.sh pulls them from the grafana releases
+# at install time); the pins are recorded in VERSIONS.txt for reference.
+LOKI_VERSION="${LOKI_VERSION:-$(cat LOKI_VERSION 2>/dev/null || true)}"
+TEMPO_VERSION="${TEMPO_VERSION:-$(cat TEMPO_VERSION 2>/dev/null || true)}"
 DIST_DIR="${DIST_DIR:-dist}"
 OUT_DIR="${OUT_DIR:-bundles}"
 STRICT_VM="${STRICT_VM:-0}"
@@ -143,8 +147,10 @@ done
 cat > "$OUT_DIR/VERSIONS.txt" <<EOF
 agent=${VERSION}
 victoria-metrics=${VM_VERSION}
+loki=${LOKI_VERSION}
+tempo=${TEMPO_VERSION}
 EOF
-echo "  -> $OUT_DIR/VERSIONS.txt (agent=${VERSION}, victoria-metrics=${VM_VERSION})"
+echo "  -> $OUT_DIR/VERSIONS.txt (agent=${VERSION}, victoria-metrics=${VM_VERSION}, loki=${LOKI_VERSION}, tempo=${TEMPO_VERSION})"
 
 # checksums for everything we produced
 ( cd "$OUT_DIR" && \

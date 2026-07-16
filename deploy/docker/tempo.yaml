@@ -1,0 +1,33 @@
+# Tempo config for the docker-compose trial's co-located local trace store.
+# Same retention semantics as the host install (scripts/install/service-templates/tempo.yaml):
+# an approximate ~1h window, bounded by compaction (block_retention).
+# Listens on 0.0.0.0 INSIDE the container; the compose port mapping keeps it
+# loopback-only on the host (127.0.0.1:3200). The OTLP receiver can use the
+# standard 4318 here — the collector's own 4318 lives in a different container.
+
+server:
+  http_listen_address: 0.0.0.0
+  http_listen_port: 3200
+  grpc_listen_port: 9097
+
+distributor:
+  receivers:
+    otlp:
+      protocols:
+        http:
+          endpoint: 0.0.0.0:4318
+
+storage:
+  trace:
+    backend: local
+    local:
+      path: /var/tempo/blocks
+    wal:
+      path: /var/tempo/wal
+
+compactor:
+  compaction:
+    block_retention: 1h
+
+usage_report:
+  reporting_enabled: false

@@ -1,5 +1,7 @@
 {{- if not .Values.config.existingConfigMap }}
 {{- $mode := include "leansignal-agent.mode" . }}
+{{- $logs := and .Values.logs.enabled (eq $mode "central") }}
+{{- $traces := and .Values.traces.enabled (eq $mode "central") }}
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -19,6 +21,12 @@ data:
         reconnect_interval: 5s
         ping_interval: 30s
         local_vm_query_url: {{ include "leansignal-agent.localVMQueryEndpoint" . | quote }}
+    {{- if $logs }}
+        local_loki_query_url: {{ include "leansignal-agent.localLokiQueryEndpoint" . | quote }}
+    {{- end }}
+    {{- if $traces }}
+        local_tempo_query_url: {{ include "leansignal-agent.localTempoQueryEndpoint" . | quote }}
+    {{- end }}
     {{- end }}
 
     receivers:
@@ -40,6 +48,16 @@ data:
         auth_type: serviceAccount
         endpoint: "https://${env:K8S_NODE_NAME}:10250"
         insecure_skip_verify: true
+    {{- end }}
+    {{- if and $logs .Values.receivers.loki.enabled }}
+      # Loki push (promtail/alloy-style shippers), from in-cluster apps and
+      # fleet nodes forwarding to this gateway agent.
+      loki:
+        protocols:
+          http:
+            endpoint: 0.0.0.0:3500
+          grpc:
+            endpoint: 0.0.0.0:3600
     {{- end }}
       # Scrape the collector's OWN internal telemetry (otelcol_* self-metrics)
       # exposed on the service.telemetry.metrics endpoint below (in-pod loopback).
@@ -85,6 +103,14 @@ data:
       leansignal_demand_filter:
         log_filtered: false
     {{- end }}
+    {{- if $logs }}
+      leansignal_log_demand_filter:
+        log_filtered: false
+    {{- end }}
+    {{- if $traces }}
+      leansignal_trace_demand_filter:
+        log_filtered: false
+    {{- end }}
 
     exporters:
     {{- if eq $mode "central" }}
@@ -110,6 +136,37 @@ data:
           enabled: true
           num_consumers: 10
           queue_size: 5000
+    {{- if $logs }}
+      # LOCAL Loki - full-fidelity, short window. Receives every log stream.
+      otlphttp/loki_local:
+        logs_endpoint: {{ include "leansignal-agent.localLokiEndpoint" . | quote }}
+      # TENANT Loki - only the demanded streams; the agent key is the bearer token.
+      otlphttp/loki_tenant:
+        logs_endpoint: "${env:LEANSIGNAL_LOKI_ENDPOINT}/otlp/v1/logs"
+        headers:
+          Authorization: "Bearer ${env:LEANSIGNAL_AGENT_KEY}"
+        retry_on_failure:
+          enabled: true
+        sending_queue:
+          enabled: true
+    {{- end }}
+    {{- if $traces }}
+      # LOCAL Tempo - full-fidelity, short window. Receives every span.
+      otlphttp/tempo_local:
+        traces_endpoint: {{ include "leansignal-agent.localTempoEndpoint" . | quote }}
+        retry_on_failure:
+          enabled: true
+      # TENANT Tempo - only the demanded resources' spans; the agent key is the
+      # bearer token.
+      otlphttp/tempo_tenant:
+        traces_endpoint: "${env:LEANSIGNAL_TEMPO_ENDPOINT}/v1/traces"
+        headers:
+          Authorization: "Bearer ${env:LEANSIGNAL_AGENT_KEY}"
+        retry_on_failure:
+          enabled: true
+        sending_queue:
+          enabled: true
+    {{- end }}
     {{- else }}
       # Edge mode: forward everything to the central agent's OTLP gRPC receiver
       # (plaintext h2c on the internal network). No local VM, tracker, or dataplane.
@@ -124,6 +181,12 @@ data:
     {{- if eq $mode "central" }}
     connectors:
       forward/demand_filter: {}
+    {{- if $logs }}
+      forward/log_demand_filter: {}
+    {{- end }}
+    {{- if $traces }}
+      forward/trace_demand_filter: {}
+    {{- end }}
     {{- end }}
 
     service:
@@ -142,6 +205,30 @@ data:
           receivers: [forward/demand_filter]
           processors: [leansignal_demand_filter, batch]
           exporters: [prometheusremotewrite/dataplane]
+    {{- if $logs }}
+        # Everything: written to the local Loki in full, and forwarded on.
+        logs/all:
+          receivers: [{{ include "leansignal-agent.logsReceivers" . }}]
+          processors: [memory_limiter, resourcedetection, resource, batch]
+          exporters: [otlphttp/loki_local, forward/log_demand_filter]
+        # Only demanded log streams reach the tenant Loki.
+        logs/filtered:
+          receivers: [forward/log_demand_filter]
+          processors: [leansignal_log_demand_filter, batch]
+          exporters: [otlphttp/loki_tenant]
+    {{- end }}
+    {{- if $traces }}
+        # Everything: written to the local Tempo in full, and forwarded on.
+        traces/all:
+          receivers: [otlp]
+          processors: [memory_limiter, resourcedetection, resource, batch]
+          exporters: [otlphttp/tempo_local, forward/trace_demand_filter]
+        # Only demanded resources' spans reach the tenant Tempo.
+        traces/filtered:
+          receivers: [forward/trace_demand_filter]
+          processors: [leansignal_trace_demand_filter, batch]
+          exporters: [otlphttp/tempo_tenant]
+    {{- end }}
     {{- else }}
           processors: [memory_limiter, resourcedetection, resource, batch]
           exporters: [otlp/central]

@@ -139,6 +139,20 @@ func (e *edgeControllerExtension) GetDemands() []string {
 	return e.demandTimeseriesCache.GetDemands().Timeseries
 }
 
+// GetLogDemands returns the current list of demanded (normalized) LogQL stream
+// selectors. Satisfies the LogDemandProvider interface defined in
+// leansignallogdemandfilter.
+func (e *edgeControllerExtension) GetLogDemands() []string {
+	return e.demandTimeseriesCache.GetDemands().LogSelectors
+}
+
+// GetTraceDemands returns the current list of demanded (normalized) trace
+// resource selectors. Satisfies the TraceDemandProvider interface defined in
+// leansignaltracedemandfilter.
+func (e *edgeControllerExtension) GetTraceDemands() []string {
+	return e.demandTimeseriesCache.GetDemands().TraceSelectors
+}
+
 // ReceiveTimeseriesBatch implements leansignalmetricsindex.TimeseriesReceiver.
 // Called by the metrics tracker processor when a batch is ready.
 func (e *edgeControllerExtension) ReceiveTimeseriesBatch(batch *TimeseriesBatch) {
@@ -341,8 +355,14 @@ func (e *edgeControllerExtension) handleServerMessage(msg *agentv1.ServerMessage
 		e.resolvePending(msg.GetCorrelationId(), body.Ack)
 	case *agentv1.ServerMessage_DemandSet:
 		metrics := body.DemandSet.GetMetrics()
-		e.logger.Info("COMMAND_RECEIVED: demand_set", zap.Int("metrics_count", len(metrics)))
-		e.demandTimeseriesCache.UpdateDemands(metrics, body.DemandSet.GetHash())
+		logSelectors := body.DemandSet.GetLogSelectors()
+		traceSelectors := body.DemandSet.GetTraceSelectors()
+		e.logger.Info("COMMAND_RECEIVED: demand_set",
+			zap.Int("metrics_count", len(metrics)),
+			zap.Int("log_selectors_count", len(logSelectors)),
+			zap.Int("trace_selectors_count", len(traceSelectors)),
+		)
+		e.demandTimeseriesCache.UpdateDemands(metrics, logSelectors, traceSelectors, body.DemandSet.GetHash())
 		e.replyCommand(msg.GetCorrelationId(), true, "demand_set applied")
 	case *agentv1.ServerMessage_GetStatus:
 		e.logger.Info("COMMAND_RECEIVED: get_status")

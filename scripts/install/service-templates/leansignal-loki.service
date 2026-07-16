@@ -1,0 +1,15 @@
+[Unit]
+Description=Loki (LeanSignal Agent local log store)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/loki \
+  -config.file=/etc/leansignal-agent/loki.yaml
+Restart=on-failure
+RestartSec=5
+LimitNOFILE=1048576
+
+[Install]
+WantedBy=multi-user.target

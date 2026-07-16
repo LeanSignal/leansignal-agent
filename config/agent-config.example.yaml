@@ -6,10 +6,16 @@
 # macOS, Windows) via the install scripts. For Kubernetes, use the Helm chart
 # under deploy/helm/leansignal-agent instead (it renders an equivalent config).
 #
-# Data flow:
+# Data flow (metrics):
 #   receivers ─▶ leansignalmetrics_tracker ─▶ LOCAL VictoriaMetrics (everything)
 #                                          └▶ leansignal_demand_filter ─▶ CENTRAL dataplane
 #                                                                          (only demanded series)
+# Data flow (logs):
+#   receivers ─▶ LOCAL Loki (everything, ~1h window)
+#             └▶ leansignal_log_demand_filter ─▶ TENANT Loki (only demanded streams)
+# Data flow (traces):
+#   receivers ─▶ LOCAL Tempo (everything, ~1h window)
+#             └▶ leansignal_trace_demand_filter ─▶ TENANT Tempo (only demanded resources' spans)
 #
 # Required environment variables (set by the installer / service unit):
 #   LEANSIGNAL_ENDPOINT            gRPC control-plane target (host:port), e.g.
@@ -17,9 +23,16 @@
 #   LEANSIGNAL_AGENT_KEY           Per-agent authentication key (keep secret)
 #   LEANSIGNAL_DATAPLANE_ENDPOINT  Prometheus remote-write URL of the central
 #                                  ingest (vmauth), e.g. https://ingest.example.com/api/v1/write
+#   LEANSIGNAL_LOKI_ENDPOINT       Tenant logs-ingest base URL (same origin as the
+#                                  dataplane ingest); the exporter appends /otlp/v1/logs
+#   LEANSIGNAL_TEMPO_ENDPOINT      Tenant traces-ingest base URL (same origin as the
+#                                  dataplane ingest); the exporter appends /v1/traces
 #
 # The LOCAL VictoriaMetrics endpoint defaults to the co-located single-node VM
-# installed alongside the agent (127.0.0.1:8428).
+# installed alongside the agent (127.0.0.1:8428); the LOCAL Loki likewise
+# defaults to the co-located instance (127.0.0.1:3100); the LOCAL Tempo defaults
+# to the co-located instance (query 127.0.0.1:3200, OTLP ingest 127.0.0.1:4328 —
+# the collector itself owns 4317/4318).
 # =============================================================================
 
 extensions:
@@ -41,6 +54,12 @@ extensions:
     # allow-listed) against the local VM. Base URL (no /api/v1/write) of the same
     # local VM written to below.
     local_vm_query_url: "http://127.0.0.1:8428"
+    # Same, for edit-mode LOG queries: base URL of the co-located local Loki
+    # written to below (QueryRequest target QUERY_TARGET_LOKI).
+    local_loki_query_url: "http://127.0.0.1:3100"
+    # Same, for edit-mode TRACE queries: query base URL of the co-located local
+    # Tempo written to below (QueryRequest target QUERY_TARGET_TEMPO).
+    local_tempo_query_url: "http://127.0.0.1:3200"
     # Where the get_diagnosis command writes the cache YAML dumps
     # (KnownTimeseriesCache.yaml, DiscoveredTimeseriesCache.yaml,
     # DemandTimeseriesCache.yaml). Defaults to /tmp/leansignal-agent.
@@ -56,6 +75,16 @@ receivers:
         endpoint: 0.0.0.0:4317
       http:
         endpoint: 0.0.0.0:4318
+
+  # Accept Loki push (promtail/alloy-style shippers) natively, from this host AND
+  # from fleet nodes forwarding to this gateway agent. Bound to 0.0.0.0 like the
+  # OTLP receivers above - keep on a trusted/internal network (or firewall :3500/:3600).
+  loki:
+    protocols:
+      http:
+        endpoint: 0.0.0.0:3500
+      grpc:
+        endpoint: 0.0.0.0:3600
 
   # Collect host system metrics. These scrapers work on Linux, macOS and Windows.
   # (The `processes` and `process` scrapers are Linux/Windows-only — add them in a
@@ -121,6 +150,17 @@ processors:
   leansignal_demand_filter:
     log_filtered: false
 
+  # Drops every log stream whose labels match no demanded LogQL selector before
+  # it reaches the tenant Loki. An empty/not-yet-received demand list blocks all.
+  leansignal_log_demand_filter:
+    log_filtered: false
+
+  # Drops every ResourceSpans group whose resource attributes match no demanded
+  # selector before it reaches the tenant Tempo. An empty/not-yet-received
+  # demand list blocks all.
+  leansignal_trace_demand_filter:
+    log_filtered: false
+
 exporters:
   # LOCAL VictoriaMetrics - full-fidelity, short retention. Receives everything.
   # resource_to_telemetry_conversion promotes resource attributes
@@ -150,10 +190,52 @@ exporters:
       num_consumers: 10
       queue_size: 5000
 
+  # LOCAL Loki - full-fidelity, ~1h window. Receives every log stream (OTLP
+  # native ingest; keeps stream-label construction identical to the tenant Loki).
+  otlphttp/loki_local:
+    logs_endpoint: http://127.0.0.1:3100/otlp/v1/logs
+
+  # TENANT Loki - long retention. Receives only the demanded streams. The Bearer
+  # agent key is the same credential as the metrics dataplane remote-write.
+  otlphttp/loki_tenant:
+    logs_endpoint: "${env:LEANSIGNAL_LOKI_ENDPOINT}/otlp/v1/logs"
+    headers:
+      Authorization: "Bearer ${env:LEANSIGNAL_AGENT_KEY}"
+    retry_on_failure:
+      enabled: true
+    sending_queue:
+      enabled: true
+
+  # LOCAL Tempo - full-fidelity, ~1h window. Receives every span. The local
+  # Tempo's OTLP receiver binds 4328 (the collector owns 4317/4318).
+  otlphttp/tempo_local:
+    traces_endpoint: http://127.0.0.1:4328/v1/traces
+    retry_on_failure:
+      enabled: true
+
+  # TENANT Tempo - long retention. Receives only the demanded resources' spans.
+  # The Bearer agent key is the same credential as the other ingest planes.
+  otlphttp/tempo_tenant:
+    traces_endpoint: "${env:LEANSIGNAL_TEMPO_ENDPOINT}/v1/traces"
+    headers:
+      Authorization: "Bearer ${env:LEANSIGNAL_AGENT_KEY}"
+    retry_on_failure:
+      enabled: true
+    sending_queue:
+      enabled: true
+
 connectors:
   # Fans a copy of all metrics from metrics/all into metrics/filtered. No routing
   # logic here - demand filtering happens in the leansignal_demand_filter processor.
   forward/demand_filter: {}
+
+  # Fans a copy of all logs from logs/all into logs/filtered. No routing logic
+  # here - demand filtering happens in the leansignal_log_demand_filter processor.
+  forward/log_demand_filter: {}
+
+  # Fans a copy of all traces from traces/all into traces/filtered. No routing logic
+  # here - demand filtering happens in the leansignal_trace_demand_filter processor.
+  forward/trace_demand_filter: {}
 
 service:
   extensions: [health_check, leansignal_edge_controller]
@@ -169,6 +251,30 @@ service:
       receivers: [forward/demand_filter]
       processors: [leansignal_demand_filter, batch]
       exporters: [prometheusremotewrite/dataplane]
+
+    # Everything: written to the local Loki in full, and forwarded on.
+    logs/all:
+      receivers: [otlp, loki]
+      processors: [resourcedetection, resource, batch]
+      exporters: [otlphttp/loki_local, forward/log_demand_filter]
+
+    # Only demanded log streams reach the tenant Loki.
+    logs/filtered:
+      receivers: [forward/log_demand_filter]
+      processors: [leansignal_log_demand_filter, batch]
+      exporters: [otlphttp/loki_tenant]
+
+    # Everything: written to the local Tempo in full, and forwarded on.
+    traces/all:
+      receivers: [otlp]
+      processors: [resourcedetection, resource, batch]
+      exporters: [otlphttp/tempo_local, forward/trace_demand_filter]
+
+    # Only demanded resources' spans reach the tenant Tempo.
+    traces/filtered:
+      receivers: [forward/trace_demand_filter]
+      processors: [leansignal_trace_demand_filter, batch]
+      exporters: [otlphttp/tempo_tenant]
 
   telemetry:
     # Expose the collector's own metrics on 127.0.0.1:8888 so the

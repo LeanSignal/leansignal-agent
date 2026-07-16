@@ -86,12 +86,23 @@ message Ack {
   string message = 2;
 }
 
-// DemandSet pushes the full list of demanded Prometheus metric names.
+// DemandSet pushes the full demand set: Prometheus metric names, LogQL
+// stream selectors, and trace resource selectors.
 message DemandSet {
   repeated string metrics = 1;
-  // FNV-1a 64 content hash of the sorted metric list. The agent stores it and
-  // echoes it in Ping.demand_hash so the server can detect missed updates.
+  // FNV-1a 64 content hash of the demand set (sorted, domain-prefixed entries
+  // covering metrics, log_selectors AND trace_selectors). The agent stores it
+  // and echoes it in Ping.demand_hash so the server can detect missed updates.
   uint64 hash = 2;
+  // Normalized LogQL stream selectors (e.g. `{service_name="api"}`) demanded
+  // by saved dashboards. The agent forwards only matching log streams to the
+  // tenant Loki; an empty list blocks all logs (fail-closed).
+  repeated string log_selectors = 3;
+  // Normalized trace resource selectors (e.g.
+  // `{resource.service.name="checkout"}`) demanded by saved dashboards. The
+  // agent forwards only spans whose resource attributes match a selector to
+  // the tenant Tempo; an empty list blocks all traces (fail-closed).
+  repeated string trace_selectors = 4;
 }
 
 // GetStatus asks the agent to report its current status (reply via CommandResult).
@@ -118,13 +129,22 @@ message Header {
   repeated string values = 2;
 }
 
-// QueryRequest is a read-only HTTP query the agent runs against its local VM.
+// QueryTarget selects which co-located store a QueryRequest runs against.
+enum QueryTarget {
+  QUERY_TARGET_VM = 0;     // local VictoriaMetrics (default — old peers unaffected)
+  QUERY_TARGET_LOKI = 1;   // local Loki (logs edit-mode / agent Explore)
+  QUERY_TARGET_TEMPO = 2;  // local Tempo (traces edit-mode / agent Explore)
+}
+
+// QueryRequest is a read-only HTTP query the agent runs against a local store
+// (VictoriaMetrics, Loki, or Tempo, per target).
 message QueryRequest {
   string method = 1;            // "GET" | "POST"
   string path = 2;              // e.g. "/api/v1/query_range" (lean-api strips its own prefix)
   string raw_query = 3;         // URL-encoded query string (GET params)
   bytes body = 4;               // request body (Perses sometimes POSTs query/series)
   repeated Header headers = 5;  // forwarded request headers (Content-Type, Accept)
+  QueryTarget target = 6;       // which local store to query (default VM)
 }
 
 // QueryResponse carries the agent's local-VM HTTP response (or an agent-side error).

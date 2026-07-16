@@ -1,0 +1,49 @@
+# Loki config for the docker-compose trial's co-located local log store.
+# Same retention semantics as the host install (scripts/install/service-templates/loki.yaml):
+# a ~1h full-fidelity window, physically bounded at 2h by the compactor.
+# Listens on 0.0.0.0 INSIDE the container; the compose port mapping keeps it
+# loopback-only on the host (127.0.0.1:3100).
+
+auth_enabled: false
+
+server:
+  http_listen_address: 0.0.0.0
+  http_listen_port: 3100
+  grpc_listen_port: 9096
+
+common:
+  instance_addr: 127.0.0.1
+  path_prefix: /loki
+  storage:
+    filesystem:
+      chunks_directory: /loki/chunks
+      rules_directory: /loki/rules
+  replication_factor: 1
+  ring:
+    kvstore:
+      store: inmemory
+
+schema_config:
+  configs:
+    - from: "2026-01-01"
+      store: tsdb
+      object_store: filesystem
+      schema: v13
+      index:
+        prefix: index_
+        period: 24h
+
+limits_config:
+  max_query_lookback: 1h            # the logical window: queries cannot see past it
+  reject_old_samples: true
+  reject_old_samples_max_age: 1h    # no backfill beyond the window
+  retention_period: 2h              # physical deletion, ~2x the window
+
+compactor:
+  working_directory: /loki/compactor
+  retention_enabled: true
+  delete_request_store: filesystem
+  retention_delete_delay: 10m
+
+analytics:
+  reporting_enabled: false

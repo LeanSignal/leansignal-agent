@@ -20,9 +20,10 @@ import (
 // after the agent's Hello and acks every index op by correlation id.
 type fakeControlServer struct {
 	agentv1.UnimplementedAgentControlServer
-	demands    []string
-	demandHash uint64 // sent with the DemandSet; agents echo it in pings
-	noAck      bool   // when true, never ack index ops (to exercise the agent's ack timeout)
+	demands      []string
+	logSelectors []string // LogQL stream selectors sent with the DemandSet
+	demandHash   uint64   // sent with the DemandSet; agents echo it in pings
+	noAck        bool     // when true, never ack index ops (to exercise the agent's ack timeout)
 
 	mu       sync.Mutex
 	received []*agentv1.AgentMessage
@@ -41,7 +42,7 @@ func (s *fakeControlServer) Connect(stream agentv1.AgentControl_ConnectServer) e
 		switch msg.GetBody().(type) {
 		case *agentv1.AgentMessage_Hello:
 			_ = stream.Send(&agentv1.ServerMessage{
-				Body: &agentv1.ServerMessage_DemandSet{DemandSet: &agentv1.DemandSet{Metrics: s.demands, Hash: s.demandHash}},
+				Body: &agentv1.ServerMessage_DemandSet{DemandSet: &agentv1.DemandSet{Metrics: s.demands, LogSelectors: s.logSelectors, Hash: s.demandHash}},
 			})
 		case *agentv1.AgentMessage_IndexCreate, *agentv1.AgentMessage_IndexUpdate, *agentv1.AgentMessage_IndexDelete:
 			if s.noAck {
@@ -174,6 +175,27 @@ func TestGRPCControlChannel(t *testing.T) {
 			return ok
 		}) == 1
 	})
+}
+
+// TestDemandSetCarriesLogSelectors: a DemandSet carrying log_selectors updates
+// GetLogDemands() (the LogDemandProvider surface the log demand filter reads).
+func TestDemandSetCarriesLogSelectors(t *testing.T) {
+	fake := &fakeControlServer{
+		demands:      []string{"up"},
+		logSelectors: []string{`{service_name="api"}`, `{k8s_namespace_name="prod"}`},
+		demandHash:   99,
+	}
+	_, e, cleanup := startAgentWith(t, fake)
+	defer cleanup()
+
+	waitFor(t, 3*time.Second, func() bool { return len(e.GetLogDemands()) == 2 })
+	got := e.GetLogDemands()
+	if got[0] != `{service_name="api"}` || got[1] != `{k8s_namespace_name="prod"}` {
+		t.Errorf("unexpected log demands: %v", got)
+	}
+	if len(e.GetDemands()) != 1 {
+		t.Errorf("metric demands: got %d want 1", len(e.GetDemands()))
+	}
 }
 
 // TestPingEchoesDemandHashAndStoredCount: after the server pushes a hashed

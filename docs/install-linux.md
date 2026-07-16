@@ -1,7 +1,9 @@
 # Install on Linux
 
-Installs the agent and a co-located VictoriaMetrics, registered as **systemd**
-services. Requires root (the script uses `sudo`). amd64 and arm64 are supported.
+Installs the agent, a co-located VictoriaMetrics (local metrics store), a
+co-located Loki (local log store) and a co-located Tempo (local trace store),
+registered as **systemd** services. Requires
+root (the script uses `sudo`). amd64 and arm64 are supported.
 
 ## Install
 
@@ -28,8 +30,14 @@ curl -fsSL https://raw.githubusercontent.com/LeanSignal/leansignal-agent/main/sc
 | `--domain` | cluster domain (default: `eu11.leansignal.io`) |
 | `--endpoint` | advanced: gRPC control host `host:port`, overrides the derived one |
 | `--dataplane-endpoint` | advanced: remote-write URL, overrides the derived one |
+| `--loki-endpoint` | advanced: tenant logs-ingest base URL, overrides the derived one |
+| `--tempo-endpoint` | advanced: tenant traces-ingest base URL, overrides the derived one |
 | `--version vX.Y.Z` | install a specific version (default: latest) |
 | `--no-vm` | don't install the local VictoriaMetrics |
+| `--no-loki` | don't install the local Loki (log store) |
+| `--loki-version X.Y.Z` | override the pinned Loki version |
+| `--no-tempo` | don't install the local Tempo (trace store) |
+| `--tempo-version X.Y.Z` | override the pinned Tempo version |
 | `--from-upstream` | pull VictoriaMetrics from upstream instead of the bundle |
 
 ### Edge mode
@@ -52,46 +60,63 @@ automatically**; there's nothing else to configure. Verify:
 ```bash
 curl -sf http://127.0.0.1:13133/ && echo " agent healthy"          # health check
 curl -s http://127.0.0.1:8428/api/v1/label/__name__/values         # metric names in the local store
+curl -sf http://127.0.0.1:3100/ready && echo " local loki ready"   # local log store
+curl -sf http://127.0.0.1:3200/ready && echo " local tempo ready"  # local trace store
 ```
 
-To send your own application metrics, point any OpenTelemetry SDK at the agent's
-OTLP endpoint (`http://127.0.0.1:4318` for HTTP, `:4317` for gRPC).
+To send your own application metrics, **logs and traces**, point any
+OpenTelemetry SDK at the agent's OTLP endpoint (`http://127.0.0.1:4318` for
+HTTP, `:4317` for gRPC). Promtail/Alloy-style log shippers can push to the
+agent's Loki receiver (`:3500` HTTP, `:3600` gRPC). All logs land in the local
+Loki and all traces in the local Tempo; **nothing is forwarded to LeanSignal
+until a dashboard demands it** (same demand model as metrics).
 
 ## What it installs
 
 | Path | |
 |------|---|
-| `/usr/local/bin/leansignal-agent`, `/usr/local/bin/victoria-metrics` | binaries |
+| `/usr/local/bin/leansignal-agent`, `/usr/local/bin/victoria-metrics`, `/usr/local/bin/loki`, `/usr/local/bin/tempo` | binaries |
 | `/etc/leansignal-agent/config.yaml` | collector config |
-| `/etc/leansignal-agent/agent.env` | endpoint + key (mode 0600) |
+| `/etc/leansignal-agent/loki.yaml` | local Loki config |
+| `/etc/leansignal-agent/tempo.yaml` | local Tempo config |
+| `/etc/leansignal-agent/agent.env` | endpoints + key (mode 0600) |
 | `/var/lib/leansignal-agent/vm` | local VM data |
-| `/etc/systemd/system/leansignal-agent.service`, `leansignal-victoria-metrics.service` | services |
+| `/var/lib/leansignal-agent/loki` | local Loki data |
+| `/var/lib/leansignal-agent/tempo` | local Tempo data |
+| `/etc/systemd/system/leansignal-agent.service`, `leansignal-victoria-metrics.service`, `leansignal-loki.service`, `leansignal-tempo.service` | services |
 
 ## Manage
 
-Two **independent** systemd units — the collector (`leansignal-agent`) and the
-local store (`leansignal-victoria-metrics`). Manage each separately; restarting one
-does not touch the other.
+Four **independent** systemd units — the collector (`leansignal-agent`), the
+local metrics store (`leansignal-victoria-metrics`), the local log store
+(`leansignal-loki`) and the local trace store (`leansignal-tempo`). Manage each
+separately; restarting one does not touch the others.
 
 ```bash
-# status of both
-systemctl status leansignal-agent leansignal-victoria-metrics
-systemctl is-active leansignal-agent leansignal-victoria-metrics
+# status of all four
+systemctl status leansignal-agent leansignal-victoria-metrics leansignal-loki leansignal-tempo
+systemctl is-active leansignal-agent leansignal-victoria-metrics leansignal-loki leansignal-tempo
 
-# AGENT — start / stop / restart (VictoriaMetrics keeps running)
+# AGENT — start / stop / restart (VictoriaMetrics + Loki + Tempo keep running)
 sudo systemctl restart leansignal-agent
 sudo systemctl stop    leansignal-agent
 sudo systemctl start   leansignal-agent
 
-# VICTORIA-METRICS — start / stop / restart
+# VICTORIA-METRICS / LOKI / TEMPO — start / stop / restart
 sudo systemctl restart leansignal-victoria-metrics
+sudo systemctl restart leansignal-loki
+sudo systemctl restart leansignal-tempo
 
 # live logs (per service)
 journalctl -u leansignal-agent -f
 journalctl -u leansignal-victoria-metrics -f
+journalctl -u leansignal-loki -f
+journalctl -u leansignal-tempo -f
 ```
 
-Local store: `http://127.0.0.1:8428` · agent health: `http://127.0.0.1:13133`.
+Local metrics store: `http://127.0.0.1:8428` · local log store:
+`http://127.0.0.1:3100` · local trace store: `http://127.0.0.1:3200` · agent
+health: `http://127.0.0.1:13133`.
 
 ### Local VM retention
 
@@ -100,6 +125,25 @@ buffer (full fidelity is kept locally; only the demanded subset is forwarded to 
 central dataplane). It's set to `--retentionPeriod=1d` in
 `/etc/systemd/system/leansignal-victoria-metrics.service` and is not a configurable
 option.
+
+### Local log window
+
+The local Loki keeps a **~1 hour** window of logs by design — queries cannot see
+past `max_query_lookback: 1h`, ingest rejects samples older than 1h, and the
+compactor physically deletes chunks after `retention_period: 2h` (Loki deletion
+is chunk-granular, so the disk bound is ~2× the logical window). Configured in
+`/etc/leansignal-agent/loki.yaml`. Only log streams explicitly demanded by a
+dashboard are forwarded to LeanSignal.
+
+### Local trace window
+
+The local Tempo keeps an **approximately 1 hour** window of traces —
+`block_retention: 1h` in `/etc/leansignal-agent/tempo.yaml`. Unlike the local
+Loki there is no exact query-lookback bound (Tempo deletion is
+compaction-driven and block-granular), so queries may see slightly more than an
+hour. Its OTLP receiver binds `127.0.0.1:4328` (the agent collector owns
+4317/4318). Only traces of resources explicitly demanded by a dashboard are
+forwarded to LeanSignal.
 
 ### Change the agent key or tenant
 
@@ -113,13 +157,15 @@ sudo nano /etc/leansignal-agent/agent.env
 LEANSIGNAL_ENDPOINT=<tenant>-grpc.eu11.leansignal.io:443
 LEANSIGNAL_AGENT_KEY=<key>
 LEANSIGNAL_DATAPLANE_ENDPOINT=https://<tenant>-ingest.eu11.leansignal.io/api/v1/write
+LEANSIGNAL_LOKI_ENDPOINT=https://<tenant>-ingest.eu11.leansignal.io
+LEANSIGNAL_TEMPO_ENDPOINT=https://<tenant>-ingest.eu11.leansignal.io
 ```
 ```bash
 sudo systemctl restart leansignal-agent
 ```
 
-Changing the **tenant** updates **three** values — the key **and** both hosts
-(`-grpc` control + `-ingest` dataplane embed the tenant name). To change only the
+Changing the **tenant** updates **five** values — the key **and** the hosts
+(`-grpc` control + `-ingest` dataplane/logs/traces embed the tenant name). To change only the
 key, edit `LEANSIGNAL_AGENT_KEY`. Or just re-run the installer with
 `--agent-key` / `--tenant` (it rewrites these and keeps your config + VM data).
 
