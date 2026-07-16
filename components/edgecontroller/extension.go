@@ -36,9 +36,10 @@ import (
 	agentv1 "github.com/leansignal/leansignal-agent/proto/gen/leansignal/agent/v1"
 )
 
-// agentVersion is reported to the backend in the Hello message.
-// TODO: wire to build info.
-const agentVersion = "0.5.0"
+// agentVersionFallback is reported in the Hello message only when the
+// collector's BuildInfo carries no version (e.g. unusual local builds). Release
+// binaries report the goreleaser-stamped dist version via BuildInfo instead.
+const agentVersionFallback = "0.5.0"
 
 // maxMessageBytes bounds a single control message (index batches can be large).
 const maxMessageBytes = 16 * 1024 * 1024
@@ -54,6 +55,10 @@ type edgeControllerExtension struct {
 	// factory. nil in unit tests, in which case self-metrics are not registered.
 	meterProvider metric.MeterProvider
 	metrics       *controllerMetrics
+
+	// buildVersion is the collector distribution's version (from
+	// component.BuildInfo), reported to the backend in the Hello message.
+	buildVersion string
 
 	// Timeseries caches
 	knownTimeseriesCache      *KnownTimeseriesCache
@@ -86,6 +91,7 @@ func newEdgeControllerExtension(logger *zap.Logger, config *Config) *edgeControl
 		demandTimeseriesCache:     NewDemandTimeseriesCache(logger),
 		pending:                   make(map[uint64]chan *agentv1.Ack),
 		querySem:                  make(chan struct{}, maxConcurrentQueries),
+		buildVersion:              agentVersionFallback,
 	}
 }
 
@@ -250,7 +256,7 @@ func (e *edgeControllerExtension) connect(ctx context.Context) error {
 
 	// Announce ourselves; the server pushes the current demand list in response.
 	if err := e.sendAgentMessage(&agentv1.AgentMessage{
-		Body: &agentv1.AgentMessage_Hello{Hello: &agentv1.Hello{Version: agentVersion}},
+		Body: &agentv1.AgentMessage_Hello{Hello: &agentv1.Hello{Version: e.buildVersion}},
 	}); err != nil {
 		return err
 	}

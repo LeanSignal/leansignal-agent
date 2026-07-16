@@ -60,5 +60,10 @@ func createExtension(
 	config := cfg.(*Config)
 	ext := newEdgeControllerExtension(set.Logger, config)
 	ext.meterProvider = set.MeterProvider
+	// Report the real distribution version (goreleaser-stamped at release) in
+	// the Hello; the constructor's fallback covers version-less builds.
+	if v := set.BuildInfo.Version; v != "" {
+		ext.buildVersion = v
+	}
 	return ext, nil
 }

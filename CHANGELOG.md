@@ -6,6 +6,14 @@ All notable changes to this project are documented here. The format is based on
 
 ## [Unreleased]
 
+## [0.6.1] - 2026-07-16
+### Fixed
+- The version reported to the backend in the gRPC Hello (shown in the UI's
+  Agents page) now comes from the collector's `component.BuildInfo` — the
+  goreleaser-stamped distribution version — instead of a hardcoded constant
+  that had drifted (v0.6.0 binaries reported "0.5.0"). Version-less local
+  builds fall back to the old constant.
+
 ## [0.6.0] - 2026-07-16
 ### Added
 - **Demand-driven logs (Loki).** A new `logs/all` → `logs/filtered` pipeline pair
