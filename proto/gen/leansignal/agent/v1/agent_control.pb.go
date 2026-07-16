@@ -693,8 +693,17 @@ type DemandSet struct {
 	// agent forwards only spans whose resource attributes match a selector to
 	// the tenant Tempo; an empty list blocks all traces (fail-closed).
 	TraceSelectors []string `protobuf:"bytes,4,rep,name=trace_selectors,json=traceSelectors,proto3" json:"trace_selectors,omitempty"`
-	unknownFields  protoimpl.UnknownFields
-	sizeCache      protoimpl.SizeCache
+	// Normalized PromQL series selectors (e.g.
+	// `{__name__="node_cpu_seconds_total",cpu=~"0|3",mode!="idle"}`) extracted
+	// from dashboard/alert PromQL. Agents that understand this field filter
+	// metrics at SERIES granularity (matching Prometheus label semantics after
+	// remote-write translation); `metrics` (field 1) stays populated with the
+	// plain name parts as a superset fallback for older agents. `le`/`quantile`
+	// matchers are ignored agent-side (those labels only materialize at
+	// remote-write); an empty list blocks all metrics (fail-closed).
+	MetricSelectors []string `protobuf:"bytes,5,rep,name=metric_selectors,json=metricSelectors,proto3" json:"metric_selectors,omitempty"`
+	unknownFields   protoimpl.UnknownFields
+	sizeCache       protoimpl.SizeCache
 }
 
 func (x *DemandSet) Reset() {
@@ -751,6 +760,13 @@ func (x *DemandSet) GetLogSelectors() []string {
 func (x *DemandSet) GetTraceSelectors() []string {
 	if x != nil {
 		return x.TraceSelectors
+	}
+	return nil
+}
+
+func (x *DemandSet) GetMetricSelectors() []string {
+	if x != nil {
+		return x.MetricSelectors
 	}
 	return nil
 }
@@ -1470,12 +1486,13 @@ const file_leansignal_agent_v1_agent_control_proto_rawDesc = "" +
 	"\x04Pong\"9\n" +
 	"\x03Ack\x12\x18\n" +
 	"\asuccess\x18\x01 \x01(\bR\asuccess\x12\x18\n" +
-	"\amessage\x18\x02 \x01(\tR\amessage\"\x87\x01\n" +
+	"\amessage\x18\x02 \x01(\tR\amessage\"\xb2\x01\n" +
 	"\tDemandSet\x12\x18\n" +
 	"\ametrics\x18\x01 \x03(\tR\ametrics\x12\x12\n" +
 	"\x04hash\x18\x02 \x01(\x04R\x04hash\x12#\n" +
 	"\rlog_selectors\x18\x03 \x03(\tR\flogSelectors\x12'\n" +
-	"\x0ftrace_selectors\x18\x04 \x03(\tR\x0etraceSelectors\"\v\n" +
+	"\x0ftrace_selectors\x18\x04 \x03(\tR\x0etraceSelectors\x12)\n" +
+	"\x10metric_selectors\x18\x05 \x03(\tR\x0fmetricSelectors\"\v\n" +
 	"\tGetStatus\"&\n" +
 	"\fUpdateConfig\x12\x16\n" +
 	"\x06config\x18\x01 \x01(\fR\x06config\"\x0e\n" +

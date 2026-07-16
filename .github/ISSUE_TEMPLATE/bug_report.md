@@ -14,7 +14,8 @@ labels: bug
 - Agent version: <!-- e.g. v0.1.0 -->
 - Install method: <!-- helm / linux script / macos script / windows / docker -->
 - OS / arch: <!-- e.g. Ubuntu 24.04 amd64 -->
-- VictoriaMetrics version (if relevant):
+- Co-located store version (if relevant): <!-- VictoriaMetrics / Loki / Tempo -->
+- Signal (if relevant): <!-- metrics / logs / traces -->
 
 ## Steps to reproduce
 

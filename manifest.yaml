@@ -5,10 +5,11 @@ dist:
   module: github.com/leansignal/leansignal-agent-dist
   name: leansignal-agent
   description: LeanSignal Agent - OpenTelemetry Collector distribution
-  # Agent's own SemVer (what `leansignal-agent --version` reports). The release
+  # Agent's own SemVer (what `leansignal-agent --version` reports, and what the
+  # edge controller reports to lean-api via BuildInfo.Version). The release
   # workflow overrides this with the git tag at build time. This is independent
   # of the OpenTelemetry Collector Contrib base version (pinned per-component below).
-  version: 0.2.0
+  version: 0.6.2
   output_path: ./_build
   build_tags: "grpcnotrace"
 

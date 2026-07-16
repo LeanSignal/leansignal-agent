@@ -60,5 +60,12 @@ func createExtension(
 	config := cfg.(*Config)
 	ext := newEdgeControllerExtension(set.Logger, config)
 	ext.meterProvider = set.MeterProvider
+	// Report the collector's build version to lean-api (shown as the agent
+	// version in the UI). BuildInfo.Version is the manifest `dist.version`,
+	// overridden by the release tag at goreleaser time. Guard against an empty
+	// value so the defaultAgentVersion set in the constructor survives.
+	if set.BuildInfo.Version != "" {
+		ext.version = set.BuildInfo.Version
+	}
 	return ext, nil
 }

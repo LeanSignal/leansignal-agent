@@ -14,14 +14,15 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-package leansignallogdemandfilter
+package leansignalselectormatch
 
 import (
 	"testing"
 )
 
 // ---------------------------------------------------------------------------
-// Parser — valid inputs
+// Parse (Prometheus label names) — valid inputs
+// (ported unchanged from components/logdemandfilter/selector_test.go)
 // ---------------------------------------------------------------------------
 
 func TestParseSelectorValid(t *testing.T) {
@@ -45,51 +46,51 @@ func TestParseSelectorValid(t *testing.T) {
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			sel, err := parseSelector(c.input)
+			sel, err := Parse(c.input)
 			if err != nil {
-				t.Fatalf("parseSelector(%q) failed: %v", c.input, err)
+				t.Fatalf("Parse(%q) failed: %v", c.input, err)
 			}
-			if len(sel.matchers) != c.matchers {
-				t.Errorf("matchers: got %d want %d", len(sel.matchers), c.matchers)
+			if len(sel.Matchers) != c.matchers {
+				t.Errorf("matchers: got %d want %d", len(sel.Matchers), c.matchers)
 			}
 		})
 	}
 }
 
 func TestParseSelectorUnquotesValues(t *testing.T) {
-	sel, err := parseSelector(`{a="say \"hi\"", b="tab\there"}`)
+	sel, err := Parse(`{a="say \"hi\"", b="tab\there"}`)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := sel.matchers[0].value; got != `say "hi"` {
+	if got := sel.Matchers[0].Value; got != `say "hi"` {
 		t.Errorf("escaped quotes: got %q", got)
 	}
-	if got := sel.matchers[1].value; got != "tab\there" {
+	if got := sel.Matchers[1].Value; got != "tab\there" {
 		t.Errorf("escaped tab: got %q", got)
 	}
 
-	sel, err = parseSelector("{a=`no\\escape`}")
+	sel, err = Parse("{a=`no\\escape`}")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := sel.matchers[0].value; got != `no\escape` {
+	if got := sel.Matchers[0].Value; got != `no\escape` {
 		t.Errorf("raw string: got %q (backslash must stay literal)", got)
 	}
 }
 
 func TestParseSelectorValueWithBraceAndComma(t *testing.T) {
 	// '}' and ',' inside a quoted value must not terminate parsing.
-	sel, err := parseSelector(`{a="x}y,z"}`)
+	sel, err := Parse(`{a="x}y,z"}`)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := sel.matchers[0].value; got != "x}y,z" {
+	if got := sel.Matchers[0].Value; got != "x}y,z" {
 		t.Errorf("value: got %q want %q", got, "x}y,z")
 	}
 }
 
 // ---------------------------------------------------------------------------
-// Parser — invalid inputs
+// Parse — invalid inputs
 // ---------------------------------------------------------------------------
 
 func TestParseSelectorInvalid(t *testing.T) {
@@ -121,8 +122,8 @@ func TestParseSelectorInvalid(t *testing.T) {
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			if sel, err := parseSelector(c.input); err == nil {
-				t.Errorf("parseSelector(%q) = %+v, want error", c.input, sel)
+			if sel, err := Parse(c.input); err == nil {
+				t.Errorf("Parse(%q) = %+v, want error", c.input, sel)
 			}
 		})
 	}
@@ -132,11 +133,11 @@ func TestParseSelectorInvalid(t *testing.T) {
 // Matching semantics (Prometheus rules)
 // ---------------------------------------------------------------------------
 
-func mustParse(t *testing.T, s string) *selector {
+func mustParse(t *testing.T, s string) *Selector {
 	t.Helper()
-	sel, err := parseSelector(s)
+	sel, err := Parse(s)
 	if err != nil {
-		t.Fatalf("parseSelector(%q): %v", s, err)
+		t.Fatalf("Parse(%q): %v", s, err)
 	}
 	return sel
 }
@@ -187,7 +188,7 @@ func TestMatcherSemantics(t *testing.T) {
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			if got := mustParse(t, c.selector).matches(labels); got != c.want {
+			if got := mustParse(t, c.selector).Matches(labels); got != c.want {
 				t.Errorf("%s on %v = %v, want %v", c.selector, labels, got, c.want)
 			}
 		})
@@ -197,10 +198,139 @@ func TestMatcherSemantics(t *testing.T) {
 func TestMatcherRegexAnchoringWithMetaChars(t *testing.T) {
 	// "^(?:v)$" wrapping must not let a top-level alternation escape the anchor.
 	sel := mustParse(t, `{a=~"x|y"}`)
-	if sel.matches(map[string]string{"a": "xz", "service_name": "s"}) {
+	if sel.Matches(map[string]string{"a": "xz", "service_name": "s"}) {
 		t.Error(`{a=~"x|y"} must not match "xz" (alternation must stay anchored)`)
 	}
-	if !sel.matches(map[string]string{"a": "y", "service_name": "s"}) {
+	if !sel.Matches(map[string]string{"a": "y", "service_name": "s"}) {
 		t.Error(`{a=~"x|y"} must match "y"`)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// ParseDotted (dotted attribute-key names)
+// (ported unchanged from components/tracedemandfilter/selector_test.go)
+// ---------------------------------------------------------------------------
+
+func TestParseDottedValid(t *testing.T) {
+	cases := []struct {
+		in       string
+		matchers int
+	}{
+		{`{resource.service.name="checkout"}`, 1},
+		{`{resource.service.name="checkout",resource.deployment.environment="prod"}`, 2},
+		{`{ resource.service.name = "a" , resource.k8s.namespace.name != "kube-system" }`, 2},
+		{`{resource.service.name=~"check.*"}`, 1},
+		{`{resource.service.name!~"internal-.*"}`, 1},
+		{`{resource.service.name="a",}`, 1}, // trailing comma tolerated
+		{"{resource.service.name=`raw`}", 1},
+		{`{plain_underscore_name="x"}`, 1}, // undotted names still valid
+	}
+	for _, c := range cases {
+		sel, err := ParseDotted(c.in)
+		if err != nil {
+			t.Errorf("ParseDotted(%q): unexpected error %v", c.in, err)
+			continue
+		}
+		if len(sel.Matchers) != c.matchers {
+			t.Errorf("ParseDotted(%q): got %d matchers, want %d", c.in, len(sel.Matchers), c.matchers)
+		}
+	}
+}
+
+func TestParseDottedNamesPreserved(t *testing.T) {
+	sel, err := ParseDotted(`{resource.host.id="42"}`)
+	if err != nil {
+		t.Fatalf("ParseDotted: %v", err)
+	}
+	if sel.Matchers[0].Name != "resource.host.id" {
+		t.Fatalf("expected dotted name preserved, got %q", sel.Matchers[0].Name)
+	}
+}
+
+func TestParseDottedInvalid(t *testing.T) {
+	cases := []string{
+		``,
+		`{}`,                               // empty selector = match-all: rejected
+		`resource.service.name="a"`,        // no braces
+		`{resource.service.name}`,          // no op/value
+		`{resource.service.name="a"`,       // unterminated
+		`{resource.service.name="a"}extra`, // trailing input
+		`{=""}`,                            // missing name
+		`{.service.name="a"}`,              // name may not start with '.'
+		`{resource.service.name=unquoted}`, // unquoted value
+		`{resource.service.name=="a"}`,     // TraceQL '==' is not the canonical form
+		`{resource.service.name="a" || resource.service.name="b"}`, // no boolean operators
+	}
+	for _, c := range cases {
+		if _, err := ParseDotted(c); err == nil {
+			t.Errorf("ParseDotted(%q): expected error, got nil", c)
+		}
+	}
+}
+
+func TestParseDottedMatcherSemantics(t *testing.T) {
+	labels := map[string]string{
+		"resource.service.name":           "checkout",
+		"resource.deployment.environment": "prod",
+	}
+
+	cases := []struct {
+		sel  string
+		want bool
+	}{
+		{`{resource.service.name="checkout"}`, true},
+		{`{resource.service.name="payments"}`, false},
+		{`{resource.service.name!="payments"}`, true},
+		{`{resource.service.name=~"check.*"}`, true},
+		{`{resource.service.name=~"eckout"}`, false}, // anchored
+		{`{resource.service.name!~"pay.*"}`, true},
+		{`{resource.absent.label=""}`, true}, // absent → "" (Prometheus semantics)
+		{`{resource.absent.label!=""}`, false},
+		{`{resource.service.name="checkout",resource.deployment.environment="prod"}`, true},
+		{`{resource.service.name="checkout",resource.deployment.environment="dev"}`, false},
+	}
+	for _, c := range cases {
+		sel, err := ParseDotted(c.sel)
+		if err != nil {
+			t.Fatalf("ParseDotted(%q): %v", c.sel, err)
+		}
+		if got := sel.Matches(labels); got != c.want {
+			t.Errorf("%q.Matches(...) = %v, want %v", c.sel, got, c.want)
+		}
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Dialect divergence: Parse must reject dotted names, ParseDotted accepts them.
+// ---------------------------------------------------------------------------
+
+func TestDialectDots(t *testing.T) {
+	if _, err := Parse(`{service.name="x"}`); err == nil {
+		t.Error(`Parse must reject dotted label names`)
+	}
+	if _, err := ParseDotted(`{service.name="x"}`); err != nil {
+		t.Errorf(`ParseDotted must accept dotted label names: %v`, err)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// MatchValue — the single-value evaluation surface the metrics filter uses
+// for __name__ matchers.
+// ---------------------------------------------------------------------------
+
+func TestMatchValue(t *testing.T) {
+	sel := mustParse(t, `{__name__=~"node_.*",mode!="idle"}`)
+	nameM, modeM := sel.Matchers[0], sel.Matchers[1]
+	if !nameM.MatchValue("node_cpu_seconds_total") {
+		t.Error("regex __name__ matcher must match node_cpu_seconds_total")
+	}
+	if nameM.MatchValue("process_cpu_seconds_total") {
+		t.Error("regex __name__ matcher must not match process_cpu_seconds_total")
+	}
+	if modeM.MatchValue("idle") {
+		t.Error(`mode!="idle" must not match "idle"`)
+	}
+	if !modeM.MatchValue("") {
+		t.Error(`mode!="idle" must match an absent label ("")`)
 	}
 }

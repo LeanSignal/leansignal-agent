@@ -69,13 +69,13 @@ central
 {{- end -}}
 
 {{/* Comma-separated list of enabled receivers for the metrics/all pipeline.
-     prometheus/internal (the collector's own self-metrics) is always included. */}}
+     The collector's own self-metrics arrive via OTLP (see service.telemetry),
+     so the otlp receiver covers them — no dedicated self-scrape receiver. */}}
 {{- define "leansignal-agent.metricsReceivers" -}}
 {{- $r := list -}}
 {{- if .Values.receivers.otlp.enabled -}}{{- $r = append $r "otlp" -}}{{- end -}}
 {{- if .Values.receivers.k8sCluster.enabled -}}{{- $r = append $r "k8s_cluster" -}}{{- end -}}
 {{- if .Values.receivers.kubeletStats.enabled -}}{{- $r = append $r "kubeletstats" -}}{{- end -}}
-{{- $r = append $r "prometheus/internal" -}}
 {{- join ", " $r -}}
 {{- end -}}
 

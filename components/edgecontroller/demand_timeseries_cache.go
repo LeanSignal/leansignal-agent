@@ -26,25 +26,28 @@ import (
 
 // DemandTimeseriesCache holds the ordered list of demanded timeseries strings,
 // the demanded LogQL stream selectors, the demanded trace resource selectors,
-// and the timestamp of the last update. All operations are thread-safe.
+// the demanded metric series selectors, and the timestamp of the last update.
+// All operations are thread-safe.
 type DemandTimeseriesCache struct {
-	logger         *zap.Logger
-	mu             sync.RWMutex
-	timeseries     []string
-	logSelectors   []string         // normalized LogQL stream selectors
-	traceSelectors []string         // normalized trace resource selectors
-	demandHash     uint64           // content hash of the applied demand set (0 = none)
-	LastUpdate     int64            // unix timestamp (seconds) of the last update
-	timeFunc       func() time.Time // injectable for testing
+	logger          *zap.Logger
+	mu              sync.RWMutex
+	timeseries      []string
+	logSelectors    []string         // normalized LogQL stream selectors
+	traceSelectors  []string         // normalized trace resource selectors
+	metricSelectors []string         // normalized metric series selectors
+	demandHash      uint64           // content hash of the applied demand set (0 = none)
+	LastUpdate      int64            // unix timestamp (seconds) of the last update
+	timeFunc        func() time.Time // injectable for testing
 }
 
 // DemandTimeseriesSnapshot is the value type returned by GetDemands.
 type DemandTimeseriesSnapshot struct {
-	Timeseries     []string
-	LogSelectors   []string
-	TraceSelectors []string
-	DemandHash     uint64
-	LastUpdate     int64
+	Timeseries      []string
+	LogSelectors    []string
+	TraceSelectors  []string
+	MetricSelectors []string
+	DemandHash      uint64
+	LastUpdate      int64
 }
 
 // NewDemandTimeseriesCache creates a new DemandTimeseriesCache instance.
@@ -62,6 +65,7 @@ func (c *DemandTimeseriesCache) Init() {
 	c.timeseries = nil
 	c.logSelectors = nil
 	c.traceSelectors = nil
+	c.metricSelectors = nil
 	c.demandHash = 0
 	c.LastUpdate = 0
 }
@@ -80,13 +84,16 @@ func (c *DemandTimeseriesCache) GetDemands() DemandTimeseriesSnapshot {
 	copy(lcp, c.logSelectors)
 	tcp := make([]string, len(c.traceSelectors))
 	copy(tcp, c.traceSelectors)
+	mcp := make([]string, len(c.metricSelectors))
+	copy(mcp, c.metricSelectors)
 
 	return DemandTimeseriesSnapshot{
-		Timeseries:     cp,
-		LogSelectors:   lcp,
-		TraceSelectors: tcp,
-		DemandHash:     c.demandHash,
-		LastUpdate:     c.LastUpdate,
+		Timeseries:      cp,
+		LogSelectors:    lcp,
+		TraceSelectors:  tcp,
+		MetricSelectors: mcp,
+		DemandHash:      c.demandHash,
+		LastUpdate:      c.LastUpdate,
 	}
 }
 
@@ -103,24 +110,26 @@ func (c *DemandTimeseriesCache) setTimeFunc(fn func() time.Time) {
 }
 
 // UpdateDemands replaces the ordered timeseries list, the LogQL stream
-// selector list, and the trace resource selector list with the provided
-// slices, stores the server's content hash of them (covering all three
-// lists), and records the current time as LastUpdate. The internal state
-// stores copies of the provided slices so subsequent mutations by the caller
-// are safe.
+// selector list, the trace resource selector list, and the metric series
+// selector list with the provided slices, stores the server's content hash of
+// them (covering all four lists), and records the current time as LastUpdate.
+// The internal state stores copies of the provided slices so subsequent
+// mutations by the caller are safe.
 //
 // Note: the leansignal_demand_filter / leansignal_log_demand_filter /
 // leansignal_trace_demand_filter processors read
-// GetDemands()/GetLogDemands()/GetTraceDemands() live on every batch — there
-// is no separate notification channel.  The new lists will be active for the
-// very next batch that arrives after this call returns.
-func (c *DemandTimeseriesCache) UpdateDemands(timeseries, logSelectors, traceSelectors []string, hash uint64) {
+// GetDemands()/GetLogDemands()/GetTraceDemands()/GetMetricSelectors() live on
+// every batch — there is no separate notification channel.  The new lists
+// will be active for the very next batch that arrives after this call returns.
+func (c *DemandTimeseriesCache) UpdateDemands(timeseries, logSelectors, traceSelectors, metricSelectors []string, hash uint64) {
 	cp := make([]string, len(timeseries))
 	copy(cp, timeseries)
 	lcp := make([]string, len(logSelectors))
 	copy(lcp, logSelectors)
 	tcp := make([]string, len(traceSelectors))
 	copy(tcp, traceSelectors)
+	mcp := make([]string, len(metricSelectors))
+	copy(mcp, metricSelectors)
 
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -128,6 +137,7 @@ func (c *DemandTimeseriesCache) UpdateDemands(timeseries, logSelectors, traceSel
 	c.timeseries = cp
 	c.logSelectors = lcp
 	c.traceSelectors = tcp
+	c.metricSelectors = mcp
 	c.demandHash = hash
 	c.LastUpdate = c.timeFunc().Unix()
 
@@ -135,6 +145,7 @@ func (c *DemandTimeseriesCache) UpdateDemands(timeseries, logSelectors, traceSel
 		zap.Int("demanded_metrics_count", len(cp)),
 		zap.Int("demanded_log_selectors_count", len(lcp)),
 		zap.Int("demanded_trace_selectors_count", len(tcp)),
+		zap.Int("demanded_metric_selectors_count", len(mcp)),
 		zap.Uint64("demand_hash", hash),
 	)
 }

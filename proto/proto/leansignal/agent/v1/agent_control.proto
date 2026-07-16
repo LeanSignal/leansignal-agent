@@ -103,6 +103,15 @@ message DemandSet {
   // agent forwards only spans whose resource attributes match a selector to
   // the tenant Tempo; an empty list blocks all traces (fail-closed).
   repeated string trace_selectors = 4;
+  // Normalized PromQL series selectors (e.g.
+  // `{__name__="node_cpu_seconds_total",cpu=~"0|3",mode!="idle"}`) extracted
+  // from dashboard/alert PromQL. Agents that understand this field filter
+  // metrics at SERIES granularity (matching Prometheus label semantics after
+  // remote-write translation); `metrics` (field 1) stays populated with the
+  // plain name parts as a superset fallback for older agents. `le`/`quantile`
+  // matchers are ignored agent-side (those labels only materialize at
+  // remote-write); an empty list blocks all metrics (fail-closed).
+  repeated string metric_selectors = 5;
 }
 
 // GetStatus asks the agent to report its current status (reply via CommandResult).

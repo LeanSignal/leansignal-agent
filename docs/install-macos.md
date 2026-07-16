@@ -1,8 +1,15 @@
 # Install on macOS
 
-Installs the agent and a co-located VictoriaMetrics, registered as **launchd**
-daemons. Requires root (the script uses `sudo`). Apple silicon (arm64) and Intel
-(amd64) are supported.
+Installs the agent and a co-located VictoriaMetrics (local metrics store),
+registered as **launchd** daemons. Requires root (the script uses `sudo`). Apple
+silicon (arm64) and Intel (amd64) are supported.
+
+> The agent collects **telemetry** — metrics, logs, and traces — and its OTLP
+> endpoints accept all three. On macOS, though, only the co-located **metrics**
+> store (VictoriaMetrics) is installed: the co-located log and trace stores
+> (Loki, Tempo) are **Linux-only for now**, so logs and traces are not yet stored
+> locally or forwarded to LeanSignal from a macOS install. Run the agent on
+> **Linux** for full logs/traces support (see [install-linux.md](install-linux.md)).
 
 ## Install
 

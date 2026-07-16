@@ -92,13 +92,20 @@ standalone config is just for a quick isolated check.
 ## 3. Monitoring the collector itself
 
 The agent monitors itself **out of the box** — you don't need to add anything.
-Every shipped config exposes the collector's internal telemetry on
-`127.0.0.1:8888` (level `detailed`), scrapes it with a `prometheus/internal`
-receiver, and feeds it into the `metrics/all` pipeline. So the collector's own
-health (throughput, queue depth, export failures, memory) plus a set of
-LeanSignal-specific metrics (index cache sizes, control-stream connectivity) flow
-to the local VictoriaMetrics automatically — indexed and demand-filtered like any
-other metric.
+Every shipped config pushes the collector's own telemetry — **metrics, logs, and
+traces** — over OTLP to the agent's own loopback receiver (`127.0.0.1:4317`) via
+`service.telemetry`, so it flows through the same `*/all` pipelines as everything
+else. The collector's own health (throughput, queue depth, export failures,
+memory) plus a set of LeanSignal-specific metrics (index cache sizes,
+control-stream connectivity) reach the local VictoriaMetrics automatically —
+indexed and demand-filtered like any other metric — while the agent's own logs
+land in the local Loki (`{service_name="leansignal-agent"}`) and its spans in the
+local Tempo. Its `service.name` is `leansignal-agent`.
+
+The collector self-reports across **all** its pipelines (metrics, logs, and
+traces) — per-pipeline throughput, queue depth, and export failures — but this
+self-telemetry is itself emitted as **metrics**, so it lands in the local
+VictoriaMetrics like everything else here.
 
 Query it the same way as host metrics, e.g.:
 

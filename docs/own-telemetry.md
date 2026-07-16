@@ -1,51 +1,56 @@
 # Agent own telemetry (self-monitoring)
 
 The LeanSignal Agent monitors **itself**. The underlying OpenTelemetry Collector
-emits its own internal telemetry (throughput, queue depth, export failures,
-memory), and the edge controller adds a handful of LeanSignal-specific metrics
-(index cache sizes, control-stream connectivity). All of it is collected **by
-default** — no extra configuration — and stored alongside your application
-metrics in the local VictoriaMetrics.
+emits its own internal telemetry — metrics (throughput, queue depth, export
+failures, memory), its own logs, and (a few) traces — and the edge controller
+adds a handful of LeanSignal-specific metrics (index cache sizes, control-stream
+connectivity). All of it is collected **by default** — no extra configuration —
+and stored alongside your application telemetry in the local stores
+(VictoriaMetrics / Loki / Tempo).
 
 ## How it's wired (on by default)
 
 Every shipped config (`config/agent-config.*.yaml`, the Docker config, and the
-Helm chart) does three things:
-
-1. Exposes the collector's internal metrics on a loopback Prometheus endpoint via
-   `service.telemetry.metrics` (level `detailed`, `127.0.0.1:8888`).
-2. Scrapes that endpoint with a `prometheus/internal` receiver.
-3. Feeds that receiver into the normal `metrics/all` pipeline.
+Helm chart) routes the collector's own telemetry — **metrics, logs, and traces** —
+through OTLP to the agent's **own loopback OTLP receiver** (`127.0.0.1:4317`) via
+`service.telemetry`. From there it flows through the same `*/all` pipelines as any
+other telemetry.
 
 ```yaml
-receivers:
-  prometheus/internal:
-    config:
-      scrape_configs:
-        - job_name: otelcol-self
-          scrape_interval: 15s
-          static_configs:
-            - targets: [127.0.0.1:8888]
-
 service:
   telemetry:
     metrics:
       level: detailed
       readers:
-        - pull: { exporter: { prometheus: { host: 127.0.0.1, port: 8888 } } }
+        - periodic:
+            interval: 15000        # milliseconds
+            exporter: { otlp: { protocol: grpc, endpoint: http://127.0.0.1:4317 } }
+    logs:
+      level: info
+      processors:
+        - batch: { exporter: { otlp: { protocol: grpc, endpoint: http://127.0.0.1:4317 } } }
+    traces:
+      processors:
+        - batch: { exporter: { otlp: { protocol: grpc, endpoint: http://127.0.0.1:4317 } } }
   pipelines:
-    metrics/all:
-      receivers: [otlp, hostmetrics, prometheus/internal]
-      processors: [leansignalmetrics_tracker, batch]
-      exporters: [prometheusremotewrite/local, forward/demand_filter]
+    # self-metrics arrive on the otlp receiver — no dedicated self-scrape receiver
+    metrics/all: { receivers: [otlp, hostmetrics], ... }
 ```
 
-Because self-telemetry rides the same pipeline as everything else, it is:
+Because self-telemetry rides the same pipelines as everything else, it is:
 
-- **stored in full** in the local VictoriaMetrics (short retention),
-- **indexed** by the tracker (so it shows up in the metric index), and
-- **demandable** — add any of these names to the demand list and they flow to the
-  central dataplane for fleet-wide dashboards, exactly like an application metric.
+- **stored in full** locally — metrics in VictoriaMetrics, logs in Loki, traces in
+  Tempo (all short-retention, queryable via **"Available"**),
+- **indexed** by the tracker (metrics show up in the metric index), and
+- **demandable** — reference any of it from a dashboard/alert and it flows to the
+  central dataplane / tenant store (**"Stored"**), exactly like application telemetry.
+
+The agent's own `service.name` is **`leansignal-agent`**, so
+`{service_name="leansignal-agent"}` (logs) or `service.name = "leansignal-agent"`
+(traces) selects the agent itself.
+
+> Logs still **also** go to stderr/journald (`journalctl -u leansignal-agent`,
+> `kubectl logs`) — adding the OTLP path does not silence the console.
 
 ## Querying it
 
@@ -58,7 +63,7 @@ curl -s 'http://127.0.0.1:8428/api/v1/query?query=leansignal_edgecontroller_conn
 
 # List every self-telemetry name currently stored
 curl -s http://127.0.0.1:8428/api/v1/label/__name__/values \
-  | jq -r '.data[]' | grep -E '^(leansignal_|otelcol_|http_client_|scrape_|up$)'
+  | jq -r '.data[]' | grep -E '^(leansignal_|otelcol_|http_client_)'
 ```
 
 ## Top signals to watch
@@ -101,8 +106,12 @@ plane and the metric index the agent maintains.
 
 ### Exporters — getting data out
 
-Per-exporter via the `exporter` label: `prometheusremotewrite/local` (everything →
-local VM) and `prometheusremotewrite/dataplane` (demanded subset → central).
+Per-exporter via the `exporter` label — these are the metrics pipeline's
+exporters: `prometheusremotewrite/local` (everything → local VM) and
+`prometheusremotewrite/dataplane` (demanded subset → central). The logs and
+traces pipelines add their own Loki/Tempo exporter labels under the same
+`otelcol_exporter_*` families (log-record and span counters instead of
+metric-point counters).
 
 | Metric | Type | Meaning |
 |---|---|---|
@@ -117,7 +126,10 @@ local VM) and `prometheusremotewrite/dataplane` (demanded subset → central).
 
 ### Receivers — data coming in
 
-Per-receiver via the `receiver` label: `otlp`, `hostmetrics`, `prometheus/internal`.
+Per-receiver via the `receiver` label — the metrics pipeline's receivers:
+`otlp` (which now also carries the agent's own OTLP self-metrics) and
+`hostmetrics`. The logs and traces pipelines add their own receiver labels under
+the same `otelcol_receiver_*` families.
 
 | Metric | Type | Meaning |
 |---|---|---|
@@ -125,11 +137,11 @@ Per-receiver via the `receiver` label: `otlp`, `hostmetrics`, `prometheus/intern
 | `otelcol_receiver_refused_metric_points_total` | counter | Points refused (backpressure, limits). |
 | `otelcol_receiver_failed_metric_points_total` | counter | Points that failed inside the receiver. |
 
-### Scrapers (hostmetrics + self-scrape)
+### Scrapers (hostmetrics)
 
 | Metric | Type | Meaning |
 |---|---|---|
-| `otelcol_scraper_scraped_metric_points_total` | counter | Points pulled by scrapers (host metrics + the `:8888` self-scrape). |
+| `otelcol_scraper_scraped_metric_points_total` | counter | Points pulled by the host-metrics scrapers. |
 | `otelcol_scraper_errored_metric_points_total` | counter | Points a scraper failed to collect. |
 
 ### Batch processor
@@ -166,25 +178,25 @@ view of how the local VM and the central dataplane are responding.
 The OTLP gRPC **receiver** emits `rpc_server_*` histograms (call latency, messages
 per RPC) when applications push over gRPC. These are **absent until there is gRPC
 traffic** — an idle agent, or one receiving only host metrics and OTLP/HTTP, shows
-none — so confirm the exact names on `:8888` once a gRPC producer is connected.
-(The edge controller's own outbound control-stream client is not instrumented, so
-it contributes no `rpc_*` metrics.)
+none — so confirm the exact names once a gRPC producer is connected. (The edge
+controller's own outbound control-stream client is not instrumented, so it
+contributes no `rpc_*` metrics.)
 
-### Self-scrape health (from `prometheus/internal`)
-
-Standard Prometheus scrape meta for the `:8888` self-scrape — a canary that the
-self-telemetry loop itself is healthy.
-
-| Metric | Type | Meaning |
-|---|---|---|
-| `up` | gauge | `1` if the last `:8888` self-scrape succeeded. |
-| `scrape_duration_seconds` | gauge | How long the self-scrape took. |
-| `scrape_samples_scraped` | gauge | Samples pulled from `:8888` (a rough count of exposed self-metrics). |
-| `scrape_samples_post_metric_relabeling` | gauge | Samples kept after relabeling. |
-| `scrape_series_added` | gauge | New series added by the last scrape. |
+> **No more `up` / `scrape_*` self-scrape meta.** Self-metrics are now pushed over
+> OTLP rather than scraped, so the Prometheus scrape-meta series (`up`,
+> `scrape_duration_seconds`, `scrape_samples_scraped`, …) that a `prometheus`
+> receiver used to synthesize are no longer produced. Use
+> `leansignal_edgecontroller_connection_up` and the `otelcol_exporter_*` failure
+> counters as the health canaries instead.
 
 ## Notes
 
+- **All three signals self-report.** The collector's own metrics, logs *and*
+  traces are pushed via OTLP (see [How it's wired](#how-its-wired-on-by-default)):
+  metrics land in the local VictoriaMetrics, the agent's own logs in the local
+  Loki (`{service_name="leansignal-agent"}`), and its (sparse) internal spans in
+  the local Tempo. The `otelcol_*` metric families additionally carry `receiver` /
+  `exporter` label values for the Loki/Tempo exporters and the log/trace receivers.
 - **Identity labels:** because self-telemetry flows through `metrics/all`, every
   series here also carries the `leansignal_agent_name` / `host_name` / `os_type` labels (see
   [Configuration](configuration.md#identity-labels)) — so the central store can

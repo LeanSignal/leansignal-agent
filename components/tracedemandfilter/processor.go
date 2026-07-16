@@ -26,6 +26,8 @@ import (
 	"go.opentelemetry.io/collector/consumer"
 	"go.opentelemetry.io/collector/pdata/ptrace"
 	"go.uber.org/zap"
+
+	selectormatch "github.com/leansignal/leansignal-agent/components/selectormatch"
 )
 
 // TraceDemandProvider is the interface the filter expects the
@@ -58,7 +60,7 @@ type traceDemandFilterProcessor struct {
 	// (keyed by the joined raw list) and reused for every subsequent batch.
 	mu           sync.Mutex
 	cachedKey    string
-	cachedParsed []*selector
+	cachedParsed []*selectormatch.Selector
 }
 
 func newTraceDemandFilterProcessor(
@@ -143,7 +145,7 @@ func (p *traceDemandFilterProcessor) ConsumeTraces(ctx context.Context, td ptrac
 	td.ResourceSpans().RemoveIf(func(rs ptrace.ResourceSpans) bool {
 		labels := resourceLabels(rs.Resource().Attributes())
 		for _, sel := range selectors {
-			if sel.matches(labels) {
+			if sel.Matches(labels) {
 				return false // keep
 			}
 		}
@@ -170,7 +172,7 @@ func (p *traceDemandFilterProcessor) ConsumeTraces(ctx context.Context, td ptrac
 // re-parsing only when the list changed since the previous batch (cache keyed
 // by the joined raw list).  Selectors that fail to parse are skipped with a
 // warning so one bad selector cannot poison the rest of the demand set.
-func (p *traceDemandFilterProcessor) parsedSelectors(raw []string) []*selector {
+func (p *traceDemandFilterProcessor) parsedSelectors(raw []string) []*selectormatch.Selector {
 	key := strings.Join(raw, "\x00")
 
 	p.mu.Lock()
@@ -179,9 +181,11 @@ func (p *traceDemandFilterProcessor) parsedSelectors(raw []string) []*selector {
 		return p.cachedParsed
 	}
 
-	parsed := make([]*selector, 0, len(raw))
+	parsed := make([]*selectormatch.Selector, 0, len(raw))
 	for _, s := range raw {
-		sel, err := parseSelector(s)
+		// ParseDotted: trace selector label names are dotted TraceQL
+		// resource-scoped attribute keys (e.g. resource.service.name).
+		sel, err := selectormatch.ParseDotted(s)
 		if err != nil {
 			p.logger.Warn("trace demand filter: skipping unparseable selector",
 				zap.String("selector", s),

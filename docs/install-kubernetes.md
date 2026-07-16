@@ -1,7 +1,10 @@
 # Install on Kubernetes
 
-The agent ships as a Helm chart that deploys the collector and (optionally) a
-co-located VictoriaMetrics via the upstream `victoria-metrics-single` subchart.
+The agent ships as a Helm chart that deploys the collector and collects
+**telemetry** — metrics, logs, and traces. The chart bundles a co-located
+**metrics** store (the upstream `victoria-metrics-single` subchart, optional);
+there is **no bundled Loki or Tempo** — for logs and traces you point the agent
+at a Loki/Tempo you run (see [Logs & traces](#logs--traces) below).
 
 ## Install
 
@@ -102,12 +105,55 @@ localVM:
 The chart passes `queryEndpoint` to the agent as `local_vm_query_url` so LeanSignal
 can read this store over the gRPC tunnel — it does not need to be exposed.
 
+## Logs & traces
+
+The chart's logs and traces pipelines are **enabled by default** (`logs.enabled`
+/ `traces.enabled`), but — unlike metrics — the chart bundles **no** Loki or
+Tempo. The agent writes every log stream / span to a *local* store and forwards
+only the demanded subset to the tenant store, so on Kubernetes you point the
+local endpoints at a Loki/Tempo **you run** (or the tenant provides):
+
+```yaml
+logs:
+  enabled: true
+localLoki:
+  # OTLP logs push endpoint (…/otlp/v1/logs) of a Loki you run.
+  writeEndpoint: http://loki.monitoring.svc:3100/otlp/v1/logs
+  # queryEndpoint is derived from writeEndpoint (…/otlp/v1/logs trimmed); set it
+  # explicitly only if your query API is elsewhere.
+
+traces:
+  enabled: true
+localTempo:
+  # OTLP traces push endpoint (…/v1/traces) of a Tempo you run.
+  writeEndpoint: http://tempo.monitoring.svc:4318/v1/traces
+  # queryEndpoint has NO derivation (the query API is a different port), so set it:
+  queryEndpoint: http://tempo.monitoring.svc:3200
+```
+
+The **tenant** logs/traces ingest hosts are derived from the tenant just like the
+metrics dataplane — `https://<tenant>-ingest.<domain>` (override with
+`logs.tenantEndpoint` / `traces.tenantEndpoint`); the exporters append
+`/otlp/v1/logs` and `/v1/traces`. As with metrics, LeanSignal can read the local
+stores over the gRPC tunnel via their `queryEndpoint`.
+
+If you don't run a local Loki/Tempo, disable those pipelines with
+`--set logs.enabled=false --set traces.enabled=false` rather than leaving them
+pointed at the default in-pod `localhost` endpoints, where nothing is listening.
+
+The chart also exposes the agent's **Loki push receiver** (promtail/alloy-style
+shippers) on the OTLP Service — ports **3500** (HTTP) / **3600** (gRPC) — whenever
+`logs.enabled` and the `loki` receiver are on (central mode).
+
 ## What gets created
 
 A Deployment (collector), ConfigMap (rendered config), ServiceAccount, a
 ClusterRole/Binding for the `k8s_cluster` + `kubeletstats` receivers, a Secret
-(unless you supply one), an OTLP Service, and — when enabled — the
-VictoriaMetrics StatefulSet/Service.
+(unless you supply one), an OTLP Service (with the Loki push receiver ports
+**3500**/**3600** added when logs are enabled), and — when enabled — the bundled
+VictoriaMetrics StatefulSet/Service. The rendered config carries the metrics,
+logs, and traces pipelines (logs/traces in central mode when enabled). **No Loki
+or Tempo is created** — those are stores you run and point the agent at.
 
 ## It's already collecting
 
@@ -124,8 +170,10 @@ kubectl -n leansignal port-forward svc/leansignal-agent-victoria-metrics-single-
 curl -s http://127.0.0.1:8428/api/v1/label/__name__/values
 ```
 
-Send your own app metrics to the in-cluster OTLP service
-`leansignal-agent.leansignal.svc:4317` (gRPC) / `:4318` (HTTP).
+Send your own app telemetry (metrics, and — once you've wired up a local
+Loki/Tempo above — logs and traces) to the in-cluster OTLP service
+`leansignal-agent.leansignal.svc:4317` (gRPC) / `:4318` (HTTP); log shippers can
+push to the Loki receiver on `:3500` (HTTP) / `:3600` (gRPC).
 
 ## Change the agent key or tenant
 
