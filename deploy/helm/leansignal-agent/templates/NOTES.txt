@@ -1,7 +1,7 @@
 LeanSignal Agent installed as {{ include "leansignal-agent.fullname" . }} in namespace {{ .Release.Namespace }}.
 
-Control plane:  {{ .Values.leansignal.endpoint | default "(unset - set leansignal.endpoint)" }}
-Dataplane:      {{ .Values.dataplane.endpoint | default "(unset - set dataplane.endpoint)" }}
+Control plane:  {{ include "leansignal-agent.controlEndpoint" . | default "(unset - set leansignal.tenant or leansignal.endpoint)" }}
+Dataplane:      {{ include "leansignal-agent.dataplaneEndpoint" . | default "(unset - set leansignal.tenant or dataplane.endpoint)" }}
 Local VM:       {{ include "leansignal-agent.localVMEndpoint" . }}
 
 OTLP endpoints (in-cluster):
