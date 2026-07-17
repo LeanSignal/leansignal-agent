@@ -185,7 +185,7 @@ See [Upgrading](upgrading.md) for agent-only vs VM upgrades, data safety, and ro
 
 ## Uninstall
 
-Removes all four binaries + services (agent, VictoriaMetrics, Loki, Tempo). Keeps config + local store data unless you pass `--purge`.
+Removes all four binaries + services (agent, VictoriaMetrics, Loki, Tempo), any `.prev` rollback backups from an interrupted upgrade, and the services' residual systemd state. Keeps config + local store data unless you pass `--purge`.
 
 **Download, then run** (clearest — `--purge` is a normal script argument):
 
