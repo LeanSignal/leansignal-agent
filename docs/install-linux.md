@@ -33,6 +33,7 @@ curl -fsSL https://raw.githubusercontent.com/LeanSignal/leansignal-agent/main/sc
 | `--loki-endpoint` | advanced: tenant logs-ingest base URL, overrides the derived one |
 | `--tempo-endpoint` | advanced: tenant traces-ingest base URL, overrides the derived one |
 | `--version vX.Y.Z` | install a specific version (default: latest) |
+| `--bundle FILE` | install from a local bundle tar.gz (e.g. built by `scripts/release/build-bundles.sh`) instead of downloading a release |
 | `--no-vm` | don't install the local VictoriaMetrics |
 | `--no-loki` | don't install the local Loki (log store) |
 | `--loki-version X.Y.Z` | override the pinned Loki version |

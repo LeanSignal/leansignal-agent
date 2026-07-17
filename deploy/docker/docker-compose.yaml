@@ -1,11 +1,11 @@
 # Quick local trial: LeanSignal Agent + co-located VictoriaMetrics + co-located
 # Loki + co-located Tempo.
 #
-#   export LEANSIGNAL_ENDPOINT=wss://api.leansignal.com/api/v1/agents/ws/
+#   export LEANSIGNAL_ENDPOINT=<tenant>-grpc.eu11.leansignal.io:443             # gRPC control target (host:port, no scheme)
 #   export LEANSIGNAL_AGENT_KEY=...
-#   export LEANSIGNAL_DATAPLANE_ENDPOINT=https://dataplane.example.com/api/v1/write
-#   export LEANSIGNAL_LOKI_ENDPOINT=https://ingest.example.com   # optional; tenant logs-ingest base
-#   export LEANSIGNAL_TEMPO_ENDPOINT=https://ingest.example.com  # optional; tenant traces-ingest base
+#   export LEANSIGNAL_DATAPLANE_ENDPOINT=https://<tenant>-ingest.eu11.leansignal.io/api/v1/write   # metrics remote-write URL
+#   export LEANSIGNAL_LOKI_ENDPOINT=https://<tenant>-ingest.eu11.leansignal.io   # tenant logs-ingest base (omit = demanded logs loop back locally)
+#   export LEANSIGNAL_TEMPO_ENDPOINT=https://<tenant>-ingest.eu11.leansignal.io  # tenant traces-ingest base (omit = demanded traces loop back locally)
 #   export LEANSIGNAL_AGENT_NAME=my-host   # optional; the agent_name label (default: docker-agent)
 #   docker compose -f deploy/docker/docker-compose.yaml up
 #
@@ -23,7 +23,7 @@ services:
     volumes:
       - vmdata:/vmdata
     ports:
-      - "8428:8428"
+      - "127.0.0.1:8428:8428"
     restart: unless-stopped
 
   # Local log store: full fidelity, ~1h window (see loki.yaml).

@@ -5,9 +5,9 @@ extensions:
   health_check:
     endpoint: 0.0.0.0:13133
   leansignal_edge_controller:
-    endpoint: "${env:LEANSIGNAL_ENDPOINT}"   # gRPC target (host:port)
+    endpoint: "${env:LEANSIGNAL_ENDPOINT}"   # gRPC target (host:port, no scheme)
     agent_key: "${env:LEANSIGNAL_AGENT_KEY}"
-    insecure: true                            # local h2c (no TLS)
+    insecure: false                           # TLS to <tenant>-grpc.<domain>:443; set true only against a local h2c lean-api
     reconnect_interval: 5s
     ping_interval: 30s
     local_vm_query_url: "http://victoriametrics:8428"  # UI edit-mode queries tunnel here
