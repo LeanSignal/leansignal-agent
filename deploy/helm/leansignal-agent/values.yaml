@@ -76,14 +76,40 @@ logs:
   # host as the metrics dataplane; the exporter appends /otlp/v1/logs).
   tenantEndpoint: ""
 
-# Local, full-fidelity Loki (short retention window) that receives every log
-# stream. Deploy your own Loki and point these at it.
+# Local, full-fidelity Loki ("aloki") that receives every log stream. By default
+# the chart deploys it as its OWN Deployment + ClusterIP Service (the same
+# topology as avm / the bundled VictoriaMetrics), so nothing else is needed.
 localLoki:
-  # OTLP logs push endpoint of the local Loki (…/otlp/v1/logs).
+  # Deploy the bundled aloki Deployment (ClusterIP, ~1h window). Turn off to
+  # bring your own Loki (then set writeEndpoint/queryEndpoint) or to skip local
+  # log storage entirely. Ignored unless logs.enabled and central mode. Setting
+  # writeEndpoint also disables the bundled store (you're pointing at your own).
+  deploy: true
+  image:
+    repository: grafana/loki
+    tag: "3.5.12"
+    pullPolicy: IfNotPresent
+  service:
+    port: 3100
+  # Persistent storage for the local store. Off by default (emptyDir) — the
+  # window is short and the data is a disposable local buffer. Enable for a PVC.
+  persistence:
+    enabled: false
+    size: 5Gi
+    storageClassName: ""
+  resources:
+    requests:
+      cpu: "100m"
+      memory: 128Mi
+    limits:
+      cpu: "1"
+      memory: 512Mi
+  # OTLP logs push endpoint of the local Loki (…/otlp/v1/logs). Empty → the
+  # bundled aloki service (http://<release>-loki.<ns>.svc:3100/otlp/v1/logs).
   writeEndpoint: ""
   # Query base URL (no /otlp/v1/logs) of the local Loki. lean-api proxies the
   # UI's edit-mode LOG queries down the control stream and the agent runs them
-  # here. Leave empty to derive it from writeEndpoint.
+  # here. Leave empty to derive it from writeEndpoint / the bundled service.
   queryEndpoint: ""
 
 # Traces pipelines (demand-driven tracing; central mode only). The agent writes
@@ -96,16 +122,42 @@ traces:
   # host as the metrics dataplane; the exporter appends /v1/traces).
   tenantEndpoint: ""
 
-# Local, full-fidelity Tempo (short retention window) that receives every span.
-# Deploy your own Tempo and point these at it.
+# Local, full-fidelity Tempo ("atempo") that receives every span. By default the
+# chart deploys it as its OWN Deployment + ClusterIP Service (the same topology
+# as avm / the bundled VictoriaMetrics), so nothing else is needed.
 localTempo:
-  # OTLP traces push endpoint of the local Tempo (…/v1/traces). Note the local
-  # Tempo's OTLP receiver must NOT bind 4317/4318 (the agent collector owns
-  # them when co-located) — the host installs use 4328.
+  # Deploy the bundled atempo Deployment (ClusterIP, ~1h window). Turn off to
+  # bring your own Tempo (then set writeEndpoint/queryEndpoint) or to skip local
+  # trace storage entirely. Ignored unless traces.enabled and central mode.
+  # Setting writeEndpoint also disables the bundled store.
+  deploy: true
+  image:
+    repository: grafana/tempo
+    tag: "2.7.1"
+    pullPolicy: IfNotPresent
+  service:
+    # Query API port and OTLP-HTTP ingest port of the atempo service.
+    queryPort: 3200
+    otlpPort: 4318
+  # Persistent storage for the local store. Off by default (emptyDir) — the
+  # window is short and the data is a disposable local buffer. Enable for a PVC.
+  persistence:
+    enabled: false
+    size: 5Gi
+    storageClassName: ""
+  resources:
+    requests:
+      cpu: "100m"
+      memory: 128Mi
+    limits:
+      cpu: "1"
+      memory: 512Mi
+  # OTLP traces push endpoint of the local Tempo (…/v1/traces). Empty → the
+  # bundled atempo service (http://<release>-tempo.<ns>.svc:4318/v1/traces).
   writeEndpoint: ""
   # Query base URL (no /v1/traces) of the local Tempo. lean-api proxies the
   # UI's edit-mode TRACE queries down the control stream and the agent runs
-  # them here.
+  # them here. Empty → the bundled atempo service (…-tempo.<ns>.svc:3200).
   queryEndpoint: ""
 
 receivers:
@@ -119,11 +171,12 @@ receivers:
   loki:
     enabled: true
 
-# Bundled local VictoriaMetrics (upstream victoria-metrics-single chart).
-# Disabled by default - enable to deploy a co-located store, or set
-# localVM.writeEndpoint to your own VM.
+# Bundled local VictoriaMetrics (upstream victoria-metrics-single chart) — the
+# co-located metrics store, deployed by default so a plain install brings up all
+# three local stores (VM + the Loki/Tempo sidecars above). Disable for edge mode
+# or to point localVM.writeEndpoint at your own VM.
 victoria-metrics-single:
-  enabled: false
+  enabled: true
   server:
     retentionPeriod: 1d
     persistentVolume:

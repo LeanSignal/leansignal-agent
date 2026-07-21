@@ -6,6 +6,21 @@ All notable changes to this project are documented here. The format is based on
 
 ## [Unreleased]
 
+## [0.6.3] - 2026-07-21
+### Changed
+- **Helm chart bundles all three local stores.** The k8s chart now deploys the
+  co-located Loki (`aloki`) and Tempo (`atempo`) as their **own** single-replica
+  Deployments + ClusterIP Services (the same topology as the bundled
+  VictoriaMetrics `avm`), reached in-cluster over service DNS — so a plain
+  `helm install` brings up a working three-signal agent with no extra wiring.
+  New `localLoki.deploy` / `localTempo.deploy` toggles (default on; set a
+  `writeEndpoint` to point at your own store instead), each with `image`,
+  `service`, `persistence` (emptyDir by default), and `resources` blocks. The
+  bundled VictoriaMetrics subchart is now **enabled by default**. The local
+  Loki/Tempo query endpoints are derived from their services automatically.
+- `otlphttp/loki_local` now retries on failure, matching `tempo_local` (avoids
+  dropping records during a local-store startup race).
+
 ## [0.6.0] - 2026-07-16
 ### Added
 - **Demand-driven logs (Loki).** A new `logs/all` → `logs/filtered` pipeline pair

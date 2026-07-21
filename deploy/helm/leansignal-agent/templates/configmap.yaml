@@ -130,6 +130,8 @@ data:
       # LOCAL Loki - full-fidelity, short window. Receives every log stream.
       otlphttp/loki_local:
         logs_endpoint: {{ include "leansignal-agent.localLokiEndpoint" . | quote }}
+        retry_on_failure:
+          enabled: true
       # TENANT Loki - only the demanded streams; the agent key is the bearer token.
       otlphttp/loki_tenant:
         logs_endpoint: "${env:LEANSIGNAL_LOKI_ENDPOINT}/otlp/v1/logs"
