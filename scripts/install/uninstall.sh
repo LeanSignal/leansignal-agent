@@ -18,6 +18,9 @@ if [ "$os" = linux ]; then
     rm -f "/etc/systemd/system/${svc}.service"
   done
   systemctl daemon-reload 2>/dev/null || true
+  # Clear any residual failed-unit state so `systemctl list-units` doesn't keep
+  # a ghost "not-found failed" entry for the removed services.
+  systemctl reset-failed 'leansignal-*' 2>/dev/null || true
 else
   CONF_DIR=/usr/local/etc/leansignal-agent; DATA_DIR=/usr/local/var/leansignal-agent
   for lbl in com.leansignal.agent com.leansignal.victoria-metrics; do
@@ -27,6 +30,8 @@ else
 fi
 
 rm -f /usr/local/bin/leansignal-agent /usr/local/bin/victoria-metrics /usr/local/bin/loki /usr/local/bin/tempo
+# Also remove upgrade.sh's rollback backups, left behind if an upgrade was interrupted.
+rm -f /usr/local/bin/leansignal-agent.prev /usr/local/bin/victoria-metrics.prev
 info "removed binaries and services"
 
 if [ "$PURGE" -eq 1 ]; then
