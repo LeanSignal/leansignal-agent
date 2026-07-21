@@ -22,7 +22,7 @@ jobs:
         with:
           fetch-depth: 0   # goreleaser needs full history for the changelog
 
-      - uses: actions/setup-go@v6
+      - uses: actions/setup-go@v7
         with:
           go-version-file: go.mod
           # false: this is a PERSISTENT self-hosted runner, so GOCACHE/GOMODCACHE
