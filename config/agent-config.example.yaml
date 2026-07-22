@@ -18,15 +18,22 @@
 #             └▶ leansignal_trace_demand_filter ─▶ TENANT Tempo (only demanded resources' spans)
 #
 # Required environment variables (set by the installer / service unit):
-#   LEANSIGNAL_ENDPOINT            gRPC control-plane target (host:port), e.g.
-#                                  api.leansignal.com:443
+#   LEANSIGNAL_TENANT              Tenant slug (e.g. "lean"). The backend hosts —
+#                                  gRPC control + metrics/logs/traces ingest — are
+#                                  NOT set here: the ${leansignal:...} config
+#                                  provider resolves the tenant's region from
+#                                  control-center at startup and derives every host
+#                                  from this slug (see components/resolveprovider).
 #   LEANSIGNAL_AGENT_KEY           Per-agent authentication key (keep secret)
-#   LEANSIGNAL_DATAPLANE_ENDPOINT  Prometheus remote-write URL of the central
-#                                  ingest (vmauth), e.g. https://ingest.example.com/api/v1/write
-#   LEANSIGNAL_LOKI_ENDPOINT       Tenant logs-ingest base URL (same origin as the
-#                                  dataplane ingest); the exporter appends /otlp/v1/logs
-#   LEANSIGNAL_TEMPO_ENDPOINT      Tenant traces-ingest base URL (same origin as the
-#                                  dataplane ingest); the exporter appends /v1/traces
+#
+# Optional (resolve tuning):
+#   LEANSIGNAL_CC_URL              control-center origin (default https://cc.leansignal.io)
+#   LEANSIGNAL_RESOLVE_AAT         resolve token (has a public default)
+#   LEANSIGNAL_DOMAIN              region domain (e.g. eu11.leansignal.io) — set to
+#                                  SKIP the control-center lookup entirely
+# Optional per-host pins (any single one; the rest stay derived; BASE URLs):
+#   LEANSIGNAL_ENDPOINT (grpc host:port), LEANSIGNAL_DATAPLANE_ENDPOINT,
+#   LEANSIGNAL_LOKI_ENDPOINT, LEANSIGNAL_TEMPO_ENDPOINT
 #
 # The LOCAL VictoriaMetrics endpoint defaults to the co-located single-node VM
 # installed alongside the agent (127.0.0.1:8428); the LOCAL Loki likewise
@@ -45,7 +52,7 @@ extensions:
   #   - receives the demand list that drives leansignal_demand_filter
   # endpoint is a gRPC target (host:port, no scheme), e.g. api.leansignal.com:443.
   leansignal_edge_controller:
-    endpoint: "${env:LEANSIGNAL_ENDPOINT}"
+    endpoint: "${leansignal:grpc}"
     agent_key: "${env:LEANSIGNAL_AGENT_KEY}"
     insecure: false        # true only for local h2c (no TLS)
     reconnect_interval: 5s
@@ -165,7 +172,7 @@ exporters:
   # CENTRAL dataplane - long retention. Receives only the demanded subset.
   # Writes go through the vmauth ingest proxy, which authenticates the agent key.
   prometheusremotewrite/dataplane:
-    endpoint: "${env:LEANSIGNAL_DATAPLANE_ENDPOINT}"
+    endpoint: "${leansignal:dataplane}/api/v1/write"
     headers:
       Authorization: "Bearer ${env:LEANSIGNAL_AGENT_KEY}"
     resource_to_telemetry_conversion:
@@ -185,7 +192,7 @@ exporters:
   # TENANT Loki - long retention. Receives only the demanded streams. The Bearer
   # agent key is the same credential as the metrics dataplane remote-write.
   otlphttp/loki_tenant:
-    logs_endpoint: "${env:LEANSIGNAL_LOKI_ENDPOINT}/otlp/v1/logs"
+    logs_endpoint: "${leansignal:loki}/otlp/v1/logs"
     headers:
       Authorization: "Bearer ${env:LEANSIGNAL_AGENT_KEY}"
     retry_on_failure:
@@ -203,7 +210,7 @@ exporters:
   # TENANT Tempo - long retention. Receives only the demanded resources' spans.
   # The Bearer agent key is the same credential as the other ingest planes.
   otlphttp/tempo_tenant:
-    traces_endpoint: "${env:LEANSIGNAL_TEMPO_ENDPOINT}/v1/traces"
+    traces_endpoint: "${leansignal:tempo}/v1/traces"
     headers:
       Authorization: "Bearer ${env:LEANSIGNAL_AGENT_KEY}"
     retry_on_failure:

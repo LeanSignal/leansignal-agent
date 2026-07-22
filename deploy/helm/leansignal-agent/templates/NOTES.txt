@@ -1,7 +1,13 @@
 LeanSignal Agent installed as {{ include "leansignal-agent.fullname" . }} in namespace {{ .Release.Namespace }}.
 
-Control plane:  {{ include "leansignal-agent.controlEndpoint" . | default "(unset - set leansignal.tenant or leansignal.endpoint)" }}
-Dataplane:      {{ include "leansignal-agent.dataplaneEndpoint" . | default "(unset - set leansignal.tenant or dataplane.endpoint)" }}
+Tenant:         {{ .Values.leansignal.tenant | default "(unset - set leansignal.tenant)" }}
+{{- if .Values.leansignal.domain }}
+Region:         {{ .Values.leansignal.domain }} (pinned; control-center lookup skipped)
+{{- else }}
+Region:         resolved from control-center at startup (GET /resolve_tenant)
+{{- end }}
+Backend hosts:  derived from the slug via ${leansignal:...} — <tenant>-grpc /
+                <tenant>-{metrics,logs,traces}-ingest.<region>
 Local VM:       {{ include "leansignal-agent.localVMEndpoint" . }}
 
 OTLP endpoints (in-cluster):

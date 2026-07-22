@@ -32,7 +32,14 @@ TEMPO_VERSION="${TEMPO_VERSION:-$TEMPO_VERSION_DEFAULT}"
 AGENT_KEY=""
 AGENT_NAME=""
 TENANT=""
-DOMAIN="${LEANSIGNAL_DOMAIN:-eu11.leansignal.io}"
+# Region domain. Empty by default: the agent RESOLVES the tenant's region from
+# control-center at startup (${leansignal:...} provider). Set --domain (or the
+# LEANSIGNAL_DOMAIN env) only to pin the region and SKIP that lookup.
+DOMAIN="${LEANSIGNAL_DOMAIN:-}"
+# control-center resolve tuning (optional; sensible defaults live in the agent).
+CC_URL="${LEANSIGNAL_CC_URL:-}"
+RESOLVE_AAT="${LEANSIGNAL_RESOLVE_AAT:-}"
+# Optional per-host pins (BASE URLs); any left empty is derived from the slug.
 ENDPOINT=""
 DATAPLANE_ENDPOINT=""
 LOKI_ENDPOINT=""
@@ -64,17 +71,22 @@ Usage: install.sh --agent-key KEY --agent-name NAME --tenant NAME [options]
                              agent (plaintext gRPC). Also settable via the
                              CENTRAL_AGENT_GRPC_URL env var. When set, no local VM
                              is installed and --tenant is not required.
-  --tenant NAME              Tenant name; derives the gRPC + ingest hosts
-                             (required for CENTRAL mode unless --endpoint is given)
-  --domain DOMAIN            Cluster domain (default: eu11.leansignal.io)
-  --endpoint HOST:PORT       Advanced: gRPC control host, overrides the derived
-                             <tenant>-grpc.<domain>:443
-  --dataplane-endpoint URL   Advanced: remote-write URL, overrides the derived
-                             https://<tenant>-ingest.<domain>/api/v1/write
-  --loki-endpoint URL        Advanced: logs-ingest base URL, overrides the derived
-                             https://<tenant>-ingest.<domain> (exporter appends /otlp/v1/logs)
-  --tempo-endpoint URL       Advanced: traces-ingest base URL, overrides the derived
-                             https://<tenant>-ingest.<domain> (exporter appends /v1/traces)
+  --tenant SLUG              Tenant slug (e.g. "lean"). The agent resolves the
+                             tenant's region from control-center at startup and
+                             derives the gRPC + per-signal ingest hosts from it
+                             (required for CENTRAL mode unless the hosts are pinned)
+  --domain DOMAIN            Advanced: pin the region domain (e.g. eu11.leansignal.io)
+                             and SKIP the control-center region lookup
+  --cc-url URL               Advanced: control-center origin (default https://cc.leansignal.io)
+  --resolve-aat TOKEN        Advanced: control-center resolve token (has a public default)
+  --endpoint HOST:PORT       Advanced: pin the gRPC control host (skips resolution
+                             for it), e.g. <tenant>-grpc.<domain>:443
+  --dataplane-endpoint URL   Advanced: pin the metrics-ingest BASE URL
+                             (exporter appends /api/v1/write)
+  --loki-endpoint URL        Advanced: pin the logs-ingest BASE URL
+                             (exporter appends /otlp/v1/logs)
+  --tempo-endpoint URL       Advanced: pin the traces-ingest BASE URL
+                             (exporter appends /v1/traces)
   --version vX.Y.Z           Agent version to install (default: latest)
   --bundle FILE              Install from a local bundle tar.gz (e.g. built by
                              scripts/release/build-bundles.sh) instead of
@@ -97,6 +109,8 @@ while [ $# -gt 0 ]; do
     --central-url) CENTRAL_URL="$2"; shift 2;;
     --tenant) TENANT="$2"; shift 2;;
     --domain) DOMAIN="$2"; shift 2;;
+    --cc-url) CC_URL="$2"; shift 2;;
+    --resolve-aat) RESOLVE_AAT="$2"; shift 2;;
     --endpoint) ENDPOINT="$2"; shift 2;;
     --dataplane-endpoint) DATAPLANE_ENDPOINT="$2"; shift 2;;
     --loki-endpoint) LOKI_ENDPOINT="$2"; shift 2;;
@@ -142,7 +156,7 @@ info "platform: ${PLATFORM}/${ARCH}"
 prompt_missing() {
   [ -r /dev/tty ] || return 0
   if [ "$MODE" = central ] && [ -z "$ENDPOINT" ] && [ -z "$TENANT" ]; then
-    printf 'Tenant name (control host becomes <tenant>-grpc.%s): ' "$DOMAIN" >/dev/tty
+    printf 'Tenant slug (the agent resolves its region + hosts from control-center): ' >/dev/tty
     IFS= read -r TENANT </dev/tty || true
   fi
   if [ -z "$AGENT_KEY" ]; then
@@ -162,35 +176,26 @@ prompt_missing
 [ -n "$AGENT_NAME" ] || err "agent name is required (--agent-name)"
 
 if [ "$MODE" = central ]; then
-  # The control + ingest hosts are derived from the tenant unless overridden.
-  if [ -z "$ENDPOINT" ] || [ -z "$DATAPLANE_ENDPOINT" ]; then
-    [ -n "$TENANT" ] || err "tenant is required (--tenant), or pass --endpoint and --dataplane-endpoint explicitly"
-    [ -n "$DOMAIN" ] || err "domain is required (--domain)"
+  # The agent resolves the tenant's region from control-center at startup and
+  # derives every backend host from the slug via the ${leansignal:...} config
+  # provider. So all we need is the tenant slug — unless the operator pins the
+  # hosts explicitly (each pin skips resolution for that one host). A tenant slug
+  # is still required unless BOTH the gRPC and metrics hosts are pinned (the two
+  # the agent can't run without).
+  if { [ -z "$ENDPOINT" ] || [ -z "$DATAPLANE_ENDPOINT" ]; } && [ -z "$TENANT" ]; then
+    err "tenant is required (--tenant), or pin the hosts explicitly (--endpoint and --dataplane-endpoint)"
   fi
-  [ -n "$ENDPOINT" ] || ENDPOINT="${TENANT}-grpc.${DOMAIN}:443"
-  [ -n "$DATAPLANE_ENDPOINT" ] || DATAPLANE_ENDPOINT="https://${TENANT}-ingest.${DOMAIN}/api/v1/write"
-  # Logs ingest rides the SAME ingest host as the metrics dataplane (path-routed
-  # to the tenant Loki): derive from the tenant, else from the dataplane origin.
-  if [ -z "$LOKI_ENDPOINT" ]; then
-    if [ -n "$TENANT" ]; then
-      LOKI_ENDPOINT="https://${TENANT}-ingest.${DOMAIN}"
+  if [ -n "$TENANT" ]; then
+    if [ -n "$DOMAIN" ]; then
+      info "tenant: ${TENANT}  (region pinned: ${DOMAIN} — control-center lookup skipped)"
     else
-      LOKI_ENDPOINT="${DATAPLANE_ENDPOINT%/api/v1/write}"
+      info "tenant: ${TENANT}  (region resolved from control-center at startup)"
     fi
   fi
-  # Traces ingest likewise rides the SAME ingest host (path-routed to the
-  # tenant Tempo): derive from the tenant, else from the dataplane origin.
-  if [ -z "$TEMPO_ENDPOINT" ]; then
-    if [ -n "$TENANT" ]; then
-      TEMPO_ENDPOINT="https://${TENANT}-ingest.${DOMAIN}"
-    else
-      TEMPO_ENDPOINT="${DATAPLANE_ENDPOINT%/api/v1/write}"
-    fi
-  fi
-  info "control endpoint:  ${ENDPOINT}"
-  info "dataplane endpoint: ${DATAPLANE_ENDPOINT}"
-  info "logs ingest endpoint: ${LOKI_ENDPOINT}"
-  info "traces ingest endpoint: ${TEMPO_ENDPOINT}"
+  [ -n "$ENDPOINT" ]           && info "gRPC host pinned:    ${ENDPOINT}"
+  [ -n "$DATAPLANE_ENDPOINT" ] && info "metrics host pinned: ${DATAPLANE_ENDPOINT}"
+  [ -n "$LOKI_ENDPOINT" ]      && info "logs host pinned:    ${LOKI_ENDPOINT}"
+  [ -n "$TEMPO_ENDPOINT" ]     && info "traces host pinned:  ${TEMPO_ENDPOINT}"
 else
   info "central agent (OTLP): ${CENTRAL_URL}"
 fi
@@ -336,14 +341,21 @@ LEANSIGNAL_AGENT_NAME=${AGENT_NAME}
 CENTRAL_AGENT_GRPC_URL=${CENTRAL_URL}
 EOF
 else
-  cat > "$CONF_DIR/agent.env" <<EOF
-LEANSIGNAL_ENDPOINT=${ENDPOINT}
-LEANSIGNAL_AGENT_KEY=${AGENT_KEY}
-LEANSIGNAL_AGENT_NAME=${AGENT_NAME}
-LEANSIGNAL_DATAPLANE_ENDPOINT=${DATAPLANE_ENDPOINT}
-LEANSIGNAL_LOKI_ENDPOINT=${LOKI_ENDPOINT}
-LEANSIGNAL_TEMPO_ENDPOINT=${TEMPO_ENDPOINT}
-EOF
+  # The tenant slug drives the ${leansignal:...} provider's startup resolve; the
+  # backend hosts are NOT written here unless explicitly pinned (each pin becomes
+  # an override the provider returns verbatim, skipping resolution for that host).
+  {
+    printf 'LEANSIGNAL_TENANT=%s\n' "${TENANT}"
+    printf 'LEANSIGNAL_AGENT_KEY=%s\n' "${AGENT_KEY}"
+    printf 'LEANSIGNAL_AGENT_NAME=%s\n' "${AGENT_NAME}"
+    if [ -n "$CC_URL" ];             then printf 'LEANSIGNAL_CC_URL=%s\n' "${CC_URL}"; fi
+    if [ -n "$RESOLVE_AAT" ];        then printf 'LEANSIGNAL_RESOLVE_AAT=%s\n' "${RESOLVE_AAT}"; fi
+    if [ -n "$DOMAIN" ];             then printf 'LEANSIGNAL_DOMAIN=%s\n' "${DOMAIN}"; fi
+    if [ -n "$ENDPOINT" ];           then printf 'LEANSIGNAL_ENDPOINT=%s\n' "${ENDPOINT}"; fi
+    if [ -n "$DATAPLANE_ENDPOINT" ]; then printf 'LEANSIGNAL_DATAPLANE_ENDPOINT=%s\n' "${DATAPLANE_ENDPOINT}"; fi
+    if [ -n "$LOKI_ENDPOINT" ];      then printf 'LEANSIGNAL_LOKI_ENDPOINT=%s\n' "${LOKI_ENDPOINT}"; fi
+    if [ -n "$TEMPO_ENDPOINT" ];     then printf 'LEANSIGNAL_TEMPO_ENDPOINT=%s\n' "${TEMPO_ENDPOINT}"; fi
+  } > "$CONF_DIR/agent.env"
 fi
 umask 022
 info "wrote $CONF_DIR/agent.env (0600)"
@@ -374,7 +386,8 @@ else
     launchctl load -w /Library/LaunchDaemons/com.leansignal.victoria-metrics.plist
   fi
   # substitute env values into the agent plist
-  sed -e "s|__LEANSIGNAL_ENDPOINT__|${ENDPOINT}|" \
+  sed -e "s|__LEANSIGNAL_TENANT__|${TENANT}|" \
+      -e "s|__LEANSIGNAL_ENDPOINT__|${ENDPOINT}|" \
       -e "s|__LEANSIGNAL_AGENT_KEY__|${AGENT_KEY}|" \
       -e "s|__LEANSIGNAL_AGENT_NAME__|${AGENT_NAME}|" \
       -e "s|__LEANSIGNAL_DATAPLANE_ENDPOINT__|${DATAPLANE_ENDPOINT}|" \

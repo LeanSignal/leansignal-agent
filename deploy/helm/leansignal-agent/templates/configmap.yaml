@@ -15,7 +15,7 @@ data:
         endpoint: 0.0.0.0:13133
     {{- if eq $mode "central" }}
       leansignal_edge_controller:
-        endpoint: "${env:LEANSIGNAL_ENDPOINT}"
+        endpoint: "${leansignal:grpc}"
         agent_key: "${env:LEANSIGNAL_AGENT_KEY}"
         insecure: {{ .Values.leansignal.insecure | default false }}
         reconnect_interval: 5s
@@ -115,7 +115,7 @@ data:
         retry_on_failure:
           enabled: true
       prometheusremotewrite/dataplane:
-        endpoint: "${env:LEANSIGNAL_DATAPLANE_ENDPOINT}"
+        endpoint: "${leansignal:dataplane}/api/v1/write"
         headers:
           Authorization: "Bearer ${env:LEANSIGNAL_AGENT_KEY}"
         resource_to_telemetry_conversion:
@@ -134,7 +134,7 @@ data:
           enabled: true
       # TENANT Loki - only the demanded streams; the agent key is the bearer token.
       otlphttp/loki_tenant:
-        logs_endpoint: "${env:LEANSIGNAL_LOKI_ENDPOINT}/otlp/v1/logs"
+        logs_endpoint: "${leansignal:loki}/otlp/v1/logs"
         headers:
           Authorization: "Bearer ${env:LEANSIGNAL_AGENT_KEY}"
         retry_on_failure:
@@ -151,7 +151,7 @@ data:
       # TENANT Tempo - only the demanded resources' spans; the agent key is the
       # bearer token.
       otlphttp/tempo_tenant:
-        traces_endpoint: "${env:LEANSIGNAL_TEMPO_ENDPOINT}/v1/traces"
+        traces_endpoint: "${leansignal:tempo}/v1/traces"
         headers:
           Authorization: "Bearer ${env:LEANSIGNAL_AGENT_KEY}"
         retry_on_failure:

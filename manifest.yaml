@@ -284,6 +284,11 @@ connectors:
   - gomod: github.com/open-telemetry/opentelemetry-collector-contrib/connector/signaltometricsconnector v0.141.0
 
 providers:
+  # leansignal resolve provider — ${leansignal:<key>} resolves the tenant's region
+  # from control-center at startup and derives every backend URL from the slug.
+  - gomod: github.com/leansignal/leansignal-agent v0.1.0
+    import: github.com/leansignal/leansignal-agent/components/resolveprovider
+    name: leansignalresolve
   - gomod: go.opentelemetry.io/collector/confmap/provider/envprovider v1.47.0
   - gomod: go.opentelemetry.io/collector/confmap/provider/fileprovider v1.47.0
   - gomod: go.opentelemetry.io/collector/confmap/provider/httpprovider v1.47.0

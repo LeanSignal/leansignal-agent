@@ -87,23 +87,11 @@ central
 {{- join ", " $r -}}
 {{- end -}}
 
-{{/* Control-plane gRPC endpoint: explicit value, else derived <tenant>-grpc.<domain>:443 */}}
-{{- define "leansignal-agent.controlEndpoint" -}}
-{{- if .Values.leansignal.endpoint -}}
-{{- .Values.leansignal.endpoint -}}
-{{- else if .Values.leansignal.tenant -}}
-{{- printf "%s-grpc.%s:443" .Values.leansignal.tenant .Values.leansignal.domain -}}
-{{- end -}}
-{{- end -}}
-
-{{/* Dataplane remote-write URL: explicit value, else derived <tenant>-ingest.<domain> */}}
-{{- define "leansignal-agent.dataplaneEndpoint" -}}
-{{- if .Values.dataplane.endpoint -}}
-{{- .Values.dataplane.endpoint -}}
-{{- else if .Values.leansignal.tenant -}}
-{{- printf "https://%s-ingest.%s/api/v1/write" .Values.leansignal.tenant .Values.leansignal.domain -}}
-{{- end -}}
-{{- end -}}
+{{/* NOTE: the backend host endpoints (control/dataplane/loki/tempo) are no longer
+     derived by the chart — the ${leansignal:...} confmap provider derives them in
+     the agent binary from leansignal.tenant (+ resolved/pinned region). The chart
+     only sets LEANSIGNAL_TENANT/DOMAIN/CC_URL/RESOLVE_AAT and optional per-host
+     pin env vars; see templates/deployment.yaml. */}}
 
 {{/* Local VM write endpoint: explicit value, else the bundled subchart's service, else localhost */}}
 {{- define "leansignal-agent.localVMEndpoint" -}}
@@ -157,17 +145,6 @@ central
 {{- end -}}
 {{- end -}}
 
-{{/* Tenant logs-ingest base URL: explicit value, else derived from the tenant —
-     the same ingest host as the dataplane (path-routed to the tenant Loki).
-     The exporter appends /otlp/v1/logs. */}}
-{{- define "leansignal-agent.lokiEndpoint" -}}
-{{- if .Values.logs.tenantEndpoint -}}
-{{- .Values.logs.tenantEndpoint -}}
-{{- else if .Values.leansignal.tenant -}}
-{{- printf "https://%s-ingest.%s" .Values.leansignal.tenant .Values.leansignal.domain -}}
-{{- end -}}
-{{- end -}}
-
 {{/* Local Tempo OTLP traces write endpoint: explicit value, else the bundled
      atempo Deployment's service (OTLP HTTP port), else localhost on 4328. */}}
 {{- define "leansignal-agent.localTempoEndpoint" -}}
@@ -193,13 +170,3 @@ central
 {{- end -}}
 {{- end -}}
 
-{{/* Tenant traces-ingest base URL: explicit value, else derived from the tenant —
-     the same ingest host as the dataplane (path-routed to the tenant Tempo).
-     The exporter appends /v1/traces. */}}
-{{- define "leansignal-agent.tempoEndpoint" -}}
-{{- if .Values.traces.tenantEndpoint -}}
-{{- .Values.traces.tenantEndpoint -}}
-{{- else if .Values.leansignal.tenant -}}
-{{- printf "https://%s-ingest.%s" .Values.leansignal.tenant .Values.leansignal.domain -}}
-{{- end -}}
-{{- end -}}

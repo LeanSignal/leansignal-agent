@@ -6,32 +6,34 @@
 # the agent's own host — the agent always keeps its full-fidelity store next to
 # itself; the cloud reads it back over the gRPC tunnel.
 #
-# Env (set by `make cloud-run`). Endpoints are BASE URLs; this config appends the
-# write path and the agent derives the query path.
-#   LEANSIGNAL_ENDPOINT            <tenant>-grpc.eu11.leansignal.io:443  (gRPC over TLS)
+# The backend hosts (gRPC control + metrics/logs/traces ingest) are NOT set as
+# endpoint env vars here — they use the ${leansignal:...} confmap provider, which
+# resolves the tenant's region from control-center ONCE at startup and derives
+# every host from the tenant slug (see components/resolveprovider). All you supply:
+#   LEANSIGNAL_TENANT              tenant slug (e.g. "lean")   → drives every derived host
 #   LEANSIGNAL_AGENT_KEY           <the tenant's agent key>
-#   LEANSIGNAL_LOCAL_VM            http://localhost:8482                 (this host's vm-ag base)
-#   LEANSIGNAL_DATAPLANE_ENDPOINT  https://<tenant>-ingest.eu11.leansignal.io  (vmauth ingest base)
-#   LEANSIGNAL_LOCAL_LOKI          http://localhost:3100                 (this host's local Loki base)
-#   LEANSIGNAL_LOKI_ENDPOINT       https://<tenant>-ingest.eu11.leansignal.io  (logs ingest base, same
-#                                  origin as the dataplane; path-routed to the tenant Loki)
-#   LEANSIGNAL_LOCAL_TEMPO         http://localhost:3200                 (this host's local Tempo query base)
-#   LEANSIGNAL_LOCAL_TEMPO_INGEST  http://localhost:4328                 (this host's local Tempo OTLP base —
+#   LEANSIGNAL_LOCAL_VM            http://localhost:8482       (this host's vm-ag base)
+#   LEANSIGNAL_LOCAL_LOKI          http://localhost:3100       (this host's local Loki base)
+#   LEANSIGNAL_LOCAL_TEMPO         http://localhost:3200       (this host's local Tempo query base)
+#   LEANSIGNAL_LOCAL_TEMPO_INGEST  http://localhost:4328       (this host's local Tempo OTLP base —
 #                                  the collector owns 4317/4318, so the local Tempo binds 4328)
-#   LEANSIGNAL_TEMPO_ENDPOINT      https://<tenant>-ingest.eu11.leansignal.io  (traces ingest base, same
-#                                  origin as the dataplane; path-routed to the tenant Tempo)
+# Optional resolve overrides: LEANSIGNAL_CC_URL (default https://cc.leansignal.io),
+# LEANSIGNAL_RESOLVE_AAT, LEANSIGNAL_DOMAIN (skip the lookup, use this region).
+# Optional per-host pins (any single one, the rest stay derived): LEANSIGNAL_ENDPOINT
+# (grpc), LEANSIGNAL_DATAPLANE_ENDPOINT, LEANSIGNAL_LOKI_ENDPOINT,
+# LEANSIGNAL_TEMPO_ENDPOINT — all BASE URLs; this config appends the write path.
 #
-# NOTE: the dataplane path only works once the tenant's vmauth ingest is deployed;
-# until then, demanded metrics can't reach the central VM (control + local store
-# still work). With no demands nothing is written there, so it's harmless. The
-# same applies to the tenant Loki ingest for demanded log streams.
+# NOTE: the dataplane path only works once the tenant's ingest is deployed; until
+# then, demanded metrics can't reach the central VM (control + local store still
+# work). With no demands nothing is written there, so it's harmless. The same
+# applies to the tenant Loki/Tempo ingest for demanded log streams/spans.
 # =============================================================================
 
 extensions:
   health_check:
     endpoint: 127.0.0.1:13133
   leansignal_edge_controller:
-    endpoint: "${env:LEANSIGNAL_ENDPOINT}"
+    endpoint: "${leansignal:grpc}"
     agent_key: "${env:LEANSIGNAL_AGENT_KEY}"
     insecure: false       # real TLS — nginx wildcard cert on 443
     reconnect_interval: 5s
@@ -116,7 +118,7 @@ exporters:
   # Central dataplane via the tenant's vmauth ingest - only the demanded subset.
   # The agent key is the bearer token vmauth authenticates.
   prometheusremotewrite/dataplane:
-    endpoint: "${env:LEANSIGNAL_DATAPLANE_ENDPOINT}/api/v1/write"
+    endpoint: "${leansignal:dataplane}/api/v1/write"
     headers:
       Authorization: "Bearer ${env:LEANSIGNAL_AGENT_KEY}"
     resource_to_telemetry_conversion:
@@ -128,7 +130,7 @@ exporters:
   # Tenant Loki via the ingest host - only the demanded streams. The agent key
   # is the bearer token the ingress forward-auth authenticates.
   otlphttp/loki_tenant:
-    logs_endpoint: "${env:LEANSIGNAL_LOKI_ENDPOINT}/otlp/v1/logs"
+    logs_endpoint: "${leansignal:loki}/otlp/v1/logs"
     headers:
       Authorization: "Bearer ${env:LEANSIGNAL_AGENT_KEY}"
     retry_on_failure:
@@ -144,7 +146,7 @@ exporters:
   # Tenant Tempo via the ingest host - only the demanded resources' spans. The
   # agent key is the bearer token the ingress forward-auth authenticates.
   otlphttp/tempo_tenant:
-    traces_endpoint: "${env:LEANSIGNAL_TEMPO_ENDPOINT}/v1/traces"
+    traces_endpoint: "${leansignal:tempo}/v1/traces"
     headers:
       Authorization: "Bearer ${env:LEANSIGNAL_AGENT_KEY}"
     retry_on_failure:

@@ -52,16 +52,44 @@ spec:
                 fieldRef:
                   fieldPath: spec.nodeName
               {{- end }}
+            # The backend hosts are resolved by the ${leansignal:...} config
+            # provider from the tenant slug. It calls control-center's
+            # /resolve_tenant at startup to learn the region, UNLESS a region is
+            # pinned via LEANSIGNAL_DOMAIN below.
+            - name: LEANSIGNAL_TENANT
+              value: {{ .Values.leansignal.tenant | quote }}
+            {{- if .Values.leansignal.domain }}
+            # Region pinned → the provider skips the control-center lookup.
+            - name: LEANSIGNAL_DOMAIN
+              value: {{ .Values.leansignal.domain | quote }}
+            {{- end }}
+            {{- if .Values.leansignal.ccUrl }}
+            - name: LEANSIGNAL_CC_URL
+              value: {{ .Values.leansignal.ccUrl | quote }}
+            {{- end }}
+            {{- if .Values.leansignal.resolveAat }}
+            - name: LEANSIGNAL_RESOLVE_AAT
+              value: {{ .Values.leansignal.resolveAat | quote }}
+            {{- end }}
+            # Optional per-host pins (BASE URLs). Each, when set, is returned by the
+            # provider verbatim and skips resolution for that one host — e.g. an
+            # in-cluster gRPC/metrics endpoint while logs/traces stay derived.
+            {{- if .Values.leansignal.endpoint }}
             - name: LEANSIGNAL_ENDPOINT
-              value: {{ include "leansignal-agent.controlEndpoint" . | quote }}
+              value: {{ .Values.leansignal.endpoint | quote }}
+            {{- end }}
+            {{- if .Values.dataplane.endpoint }}
             - name: LEANSIGNAL_DATAPLANE_ENDPOINT
-              value: {{ include "leansignal-agent.dataplaneEndpoint" . | quote }}
-            # Tenant logs-ingest base (central mode; the exporter appends /otlp/v1/logs).
+              value: {{ .Values.dataplane.endpoint | quote }}
+            {{- end }}
+            {{- if .Values.logs.tenantEndpoint }}
             - name: LEANSIGNAL_LOKI_ENDPOINT
-              value: {{ include "leansignal-agent.lokiEndpoint" . | quote }}
-            # Tenant traces-ingest base (central mode; the exporter appends /v1/traces).
+              value: {{ .Values.logs.tenantEndpoint | quote }}
+            {{- end }}
+            {{- if .Values.traces.tenantEndpoint }}
             - name: LEANSIGNAL_TEMPO_ENDPOINT
-              value: {{ include "leansignal-agent.tempoEndpoint" . | quote }}
+              value: {{ .Values.traces.tenantEndpoint | quote }}
+            {{- end }}
             # Edge mode only (empty in central mode): the central agent's OTLP endpoint.
             - name: CENTRAL_AGENT_GRPC_URL
               value: {{ .Values.leansignal.centralAgentGrpcUrl | quote }}
