@@ -4,10 +4,12 @@
   VictoriaMetrics and registers them as Windows services.
 
 .EXAMPLE
-  # You need your agent key, an agent name, and the tenant; the gRPC + ingest
-  # hosts are derived. Run from an elevated PowerShell:
-  .\install.ps1 -AgentKey KEY -AgentName NAME -Tenant TENANT
-  # Advanced: override with -Endpoint / -DataplaneEndpoint, or -Domain.
+  # You need your agent key, an agent name, and the tenant slug. The agent
+  # resolves its region from control-center at startup and derives the gRPC +
+  # ingest hosts. Run from an elevated PowerShell:
+  .\install.ps1 -AgentKey KEY -AgentName NAME -Tenant SLUG
+  # Advanced: -Domain pins the region (skips the lookup); -Endpoint /
+  # -DataplaneEndpoint / -LokiEndpoint / -TempoEndpoint pin individual hosts.
 #>
 [CmdletBinding()]
 param(
@@ -17,9 +19,15 @@ param(
   # this central agent, install no local VM, and require no tenant.
   [string]$CentralUrl = $env:CENTRAL_AGENT_GRPC_URL,
   [string]$Tenant,
-  [string]$Domain = "eu11.leansignal.io",
+  # Region domain. Empty → resolve from control-center at startup. Set to pin the
+  # region and skip that lookup.
+  [string]$Domain = "",
+  [string]$CcUrl,
+  [string]$ResolveAat,
   [string]$Endpoint,
   [string]$DataplaneEndpoint,
+  [string]$LokiEndpoint,
+  [string]$TempoEndpoint,
   [string]$Version = "latest",
   [string]$Repo = "LeanSignal/leansignal-agent",
   [switch]$NoVM
@@ -41,7 +49,7 @@ if ($mode -eq "edge") { $NoVM = $true }
 Info "install mode: $mode"
 
 # Prompt for what's needed when not supplied as parameters.
-if (($mode -eq "central") -and (-not $Endpoint) -and (-not $Tenant)) { $Tenant = Read-Host "Tenant name (control host becomes <tenant>-grpc.$Domain)" }
+if (($mode -eq "central") -and (-not $Endpoint) -and (-not $Tenant)) { $Tenant = Read-Host "Tenant slug (the agent resolves its region + hosts from control-center)" }
 if (-not $AgentKey) {
   $sec = Read-Host "Agent key / secret token" -AsSecureString
   $AgentKey = [Runtime.InteropServices.Marshal]::PtrToStringAuto(
@@ -52,14 +60,18 @@ if (-not $AgentName) { $AgentName = Read-Host "Agent name (identifies this host;
 if (-not $AgentKey) { Die "agent key is required (-AgentKey)" }
 if (-not $AgentName) { Die "agent name is required (-AgentName)" }
 if ($mode -eq "central") {
-  # The control + ingest hosts are derived from the tenant unless overridden.
+  # The agent resolves the tenant's region from control-center at startup and
+  # derives every backend host from the slug (${leansignal:...} provider). Only
+  # the slug is needed unless the gRPC + metrics hosts are both pinned.
   if (((-not $Endpoint) -or (-not $DataplaneEndpoint)) -and (-not $Tenant)) {
-    Die "tenant is required (-Tenant), or pass -Endpoint and -DataplaneEndpoint explicitly"
+    Die "tenant is required (-Tenant), or pin the hosts explicitly (-Endpoint and -DataplaneEndpoint)"
   }
-  if (-not $Endpoint)          { $Endpoint = "${Tenant}-grpc.${Domain}:443" }
-  if (-not $DataplaneEndpoint) { $DataplaneEndpoint = "https://${Tenant}-ingest.${Domain}/api/v1/write" }
-  Info "control endpoint:  $Endpoint"
-  Info "dataplane endpoint: $DataplaneEndpoint"
+  if ($Tenant) {
+    if ($Domain) { Info "tenant: $Tenant  (region pinned: $Domain — control-center lookup skipped)" }
+    else         { Info "tenant: $Tenant  (region resolved from control-center at startup)" }
+  }
+  if ($Endpoint)          { Info "gRPC host pinned:    $Endpoint" }
+  if ($DataplaneEndpoint) { Info "metrics host pinned: $DataplaneEndpoint" }
 } else {
   Info "central agent (OTLP): $CentralUrl"
 }
@@ -140,12 +152,20 @@ $envLines = if ($mode -eq "edge") {
     "CENTRAL_AGENT_GRPC_URL=$CentralUrl"
   )
 } else {
-  @(
-    "LEANSIGNAL_ENDPOINT=$Endpoint",
-    "LEANSIGNAL_AGENT_KEY=$AgentKey",
-    "LEANSIGNAL_AGENT_NAME=$AgentName",
-    "LEANSIGNAL_DATAPLANE_ENDPOINT=$DataplaneEndpoint"
-  )
+  # The slug drives the ${leansignal:...} startup resolve; hosts are written only
+  # when explicitly pinned (each becomes a verbatim override).
+  $lines = [System.Collections.Generic.List[string]]::new()
+  $lines.Add("LEANSIGNAL_TENANT=$Tenant")
+  $lines.Add("LEANSIGNAL_AGENT_KEY=$AgentKey")
+  $lines.Add("LEANSIGNAL_AGENT_NAME=$AgentName")
+  if ($CcUrl)            { $lines.Add("LEANSIGNAL_CC_URL=$CcUrl") }
+  if ($ResolveAat)       { $lines.Add("LEANSIGNAL_RESOLVE_AAT=$ResolveAat") }
+  if ($Domain)           { $lines.Add("LEANSIGNAL_DOMAIN=$Domain") }
+  if ($Endpoint)         { $lines.Add("LEANSIGNAL_ENDPOINT=$Endpoint") }
+  if ($DataplaneEndpoint){ $lines.Add("LEANSIGNAL_DATAPLANE_ENDPOINT=$DataplaneEndpoint") }
+  if ($LokiEndpoint)     { $lines.Add("LEANSIGNAL_LOKI_ENDPOINT=$LokiEndpoint") }
+  if ($TempoEndpoint)    { $lines.Add("LEANSIGNAL_TEMPO_ENDPOINT=$TempoEndpoint") }
+  $lines.ToArray()
 }
 New-ItemProperty -Path $svcKey -Name Environment -PropertyType MultiString -Value $envLines -Force | Out-Null
 

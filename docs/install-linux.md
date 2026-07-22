@@ -7,8 +7,9 @@ root (the script uses `sudo`). amd64 and arm64 are supported.
 
 ## Install
 
-You need your agent key, an agent name, and the tenant; the gRPC and ingest
-hosts are derived.
+You need your agent key, an agent name, and the tenant slug. The agent resolves
+the tenant's region from control-center at startup and derives the gRPC + ingest
+hosts from the slug — nothing else to configure.
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/LeanSignal/leansignal-agent/main/scripts/install/install.sh \
@@ -26,12 +27,14 @@ curl -fsSL https://raw.githubusercontent.com/LeanSignal/leansignal-agent/main/sc
 | `--agent-key` | agent auth key (required, both modes) |
 | `--agent-name` | name identifying this agent/host; becomes the `leansignal_agent_name` label on every metric (required, both modes) |
 | `--central-url` | install in **edge** mode: forward OTLP to this central agent (`host:port`, plaintext). Also via `CENTRAL_AGENT_GRPC_URL`. No local VM; `--tenant` not needed |
-| `--tenant` | tenant name; derives `<tenant>-grpc.<domain>:443` and `…-ingest.<domain>` (required for **central** mode unless `--endpoint` is given) |
-| `--domain` | cluster domain (default: `eu11.leansignal.io`) |
-| `--endpoint` | advanced: gRPC control host `host:port`, overrides the derived one |
-| `--dataplane-endpoint` | advanced: remote-write URL, overrides the derived one |
-| `--loki-endpoint` | advanced: tenant logs-ingest base URL, overrides the derived one |
-| `--tempo-endpoint` | advanced: tenant traces-ingest base URL, overrides the derived one |
+| `--tenant` | tenant **slug**; the agent resolves its region from control-center at startup and derives `<tenant>-grpc.<region>:443` + `<tenant>-{metrics,logs,traces}-ingest.<region>` (required for **central** mode unless the hosts are pinned) |
+| `--domain` | advanced: pin the region domain (e.g. `eu11.leansignal.io`) and **skip** the control-center lookup |
+| `--cc-url` | advanced: control-center origin (default `https://cc.leansignal.io`) |
+| `--resolve-aat` | advanced: control-center resolve token (public default) |
+| `--endpoint` | advanced: pin the gRPC control host `host:port` (skips resolution for it) |
+| `--dataplane-endpoint` | advanced: pin the metrics-ingest BASE URL (exporter appends `/api/v1/write`) |
+| `--loki-endpoint` | advanced: pin the logs-ingest BASE URL (exporter appends `/otlp/v1/logs`) |
+| `--tempo-endpoint` | advanced: pin the traces-ingest BASE URL (exporter appends `/v1/traces`) |
 | `--version vX.Y.Z` | install a specific version (default: latest) |
 | `--bundle FILE` | install from a local bundle tar.gz (e.g. built by `scripts/release/build-bundles.sh`) instead of downloading a release |
 | `--no-vm` | don't install the local VictoriaMetrics |
@@ -155,19 +158,19 @@ restart only the agent (VictoriaMetrics + its data are untouched):
 sudo nano /etc/leansignal-agent/agent.env
 ```
 ```ini
-LEANSIGNAL_ENDPOINT=<tenant>-grpc.eu11.leansignal.io:443
+LEANSIGNAL_TENANT=<slug>
 LEANSIGNAL_AGENT_KEY=<key>
-LEANSIGNAL_DATAPLANE_ENDPOINT=https://<tenant>-ingest.eu11.leansignal.io/api/v1/write
-LEANSIGNAL_LOKI_ENDPOINT=https://<tenant>-ingest.eu11.leansignal.io
-LEANSIGNAL_TEMPO_ENDPOINT=https://<tenant>-ingest.eu11.leansignal.io
+# Optional: LEANSIGNAL_DOMAIN=<region> to pin the region and skip the
+# control-center lookup; LEANSIGNAL_{ENDPOINT,DATAPLANE_ENDPOINT,LOKI_ENDPOINT,
+# TEMPO_ENDPOINT} to pin individual hosts (BASE URLs).
 ```
 ```bash
 sudo systemctl restart leansignal-agent
 ```
 
-Changing the **tenant** updates **five** values — the key **and** the hosts
-(`-grpc` control + `-ingest` dataplane/logs/traces embed the tenant name). To change only the
-key, edit `LEANSIGNAL_AGENT_KEY`. Or just re-run the installer with
+Changing the **tenant** is now a single value — `LEANSIGNAL_TENANT` (the slug):
+the agent re-resolves its region and re-derives every host on restart. To change
+only the key, edit `LEANSIGNAL_AGENT_KEY`. Or just re-run the installer with
 `--agent-key` / `--tenant` (it rewrites these and keeps your config + VM data).
 
 > If `agent.env` isn't there (an older install may have set the env differently),

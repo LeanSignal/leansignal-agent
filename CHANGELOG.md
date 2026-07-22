@@ -6,6 +6,29 @@ All notable changes to this project are documented here. The format is based on
 
 ## [Unreleased]
 
+## [0.6.4] - 2026-07-22
+### Added
+- **Startup region resolve — the agent derives every backend host from its tenant
+  slug.** A new `leansignal:` confmap provider (`components/resolveprovider`),
+  compiled into the collector binary so it works under every install method
+  (systemd/docker/k8s/manual), resolves `${leansignal:...}` config references. On
+  the first lookup it calls control-center `GET /resolve_tenant?tenant=<slug>`
+  **once** (memoized), recovers the region from the returned `api_url`
+  (`<slug>-api.<region>`), and derives `grpc` / `dataplane` / `loki` / `tempo` —
+  the per-signal ingest hosts `<slug>-{metrics,logs,traces}-ingest.<region>`.
+  `LEANSIGNAL_DOMAIN` pins the region and skips the lookup; each
+  `LEANSIGNAL_*_ENDPOINT` pins one host verbatim (skips resolution for it).
+
+### Changed
+- **Backend hosts are now derived, not configured.** The cloud/example configs,
+  the Helm chart (`configmap`/`deployment`/`values`/`NOTES`/`_helpers`),
+  `install.sh`, `install.ps1`, and the macOS plist reference the backend hosts via
+  `${leansignal:...}`; `--tenant` / `leansignal.tenant` (the slug) is the only
+  required host input, with endpoint flags/values kept as optional per-host pins.
+- **Ingest hosts are per-signal.** Moved from a single `<slug>-ingest` origin to
+  `<slug>-metrics-ingest` / `<slug>-logs-ingest` / `<slug>-traces-ingest`
+  (matching the control-center `SetAllocated` + lean-infra tenant-template rename).
+
 ## [0.6.3] - 2026-07-21
 ### Changed
 - **Helm chart bundles all three local stores.** The k8s chart now deploys the

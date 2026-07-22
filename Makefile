@@ -27,6 +27,10 @@ LOCAL_DATAPLANE ?= http://localhost:8483
 # demanded log streams also go there (no tenant Loki in dev); in cloud-run they
 # go to the tenant ingest origin (same host as the dataplane, path-routed).
 LOCAL_LOKI      ?= http://localhost:3100
+# LOCAL_TEMPO is the agent's own local Tempo query API; LOCAL_TEMPO_INGEST its
+# OTLP ingest (the collector owns 4317/4318, so the local Tempo binds 4328).
+LOCAL_TEMPO         ?= http://localhost:3200
+LOCAL_TEMPO_INGEST  ?= http://localhost:4328
 
 # local-avm: a standalone VictoriaMetrics acting as the agent's local store (vm-ag).
 # Serves LOCAL_VM (:8482); data lives in ./vm-data (gitignored).
@@ -37,13 +41,11 @@ AVM_LISTEN      ?= :8482
 LOCAL_ENDPOINT  ?= localhost:9090
 
 # cloud-run: against a deployed tenant over TLS(443). Set AGENT_KEY + TENANT; the
-# gRPC control host and vmauth ingest host are derived as <tenant>-grpc.<domain>
-# and <tenant>-ingest.<domain>. Override CLOUD_ENDPOINT / CLOUD_DATAPLANE for a
-# non-standard host. (The <tenant>-api host is REST/UI only - not used here.)
+# agent resolves the tenant's region from control-center at startup and derives
+# every backend host (<tenant>-grpc / <tenant>-{metrics,logs,traces}-ingest) via
+# the ${leansignal:...} config provider. To skip the control-center lookup (e.g.
+# offline), export LEANSIGNAL_DOMAIN=<region> for the run.
 TENANT          ?= mb1
-CLOUD_DOMAIN    ?= eu11.leansignal.io
-CLOUD_ENDPOINT  ?= $(TENANT)-grpc.$(CLOUD_DOMAIN):443
-CLOUD_DATAPLANE ?= https://$(TENANT)-ingest.$(CLOUD_DOMAIN)
 
 .DEFAULT_GOAL := help
 
@@ -137,14 +139,14 @@ local-run: ## Run the pre-built agent vs local lean-api (:9090) + VM (:8482). Ru
 cloud-run: ## Run the pre-built agent vs a CLOUD tenant over TLS(443). Requires AGENT_KEY (+ TENANT). Run `make local-build` first.
 	@[ -x "$(BUILD_DIR)/$(BINARY)" ] || { echo "$(BUILD_DIR)/$(BINARY) not found — run 'make local-build' first"; exit 1; }
 	@[ -n "$(AGENT_KEY)" ] || { echo "set AGENT_KEY=<tenant agent key> (see the tenant's agents table)"; exit 1; }
-	@echo "tenant=$(TENANT)  grpc=$(CLOUD_ENDPOINT)  ingest=$(CLOUD_DATAPLANE)  local-vm=$(LOCAL_VM)"
-	LEANSIGNAL_ENDPOINT="$(CLOUD_ENDPOINT)" \
+	@echo "tenant=$(TENANT)  (grpc + ingest hosts resolved from control-center)  local-vm=$(LOCAL_VM)"
+	LEANSIGNAL_TENANT="$(TENANT)" \
 	LEANSIGNAL_AGENT_KEY="$(AGENT_KEY)" \
 	LEANSIGNAL_AGENT_NAME="$(AGENT_NAME)" \
 	LEANSIGNAL_LOCAL_VM="$(LOCAL_VM)" \
-	LEANSIGNAL_DATAPLANE_ENDPOINT="$(CLOUD_DATAPLANE)" \
 	LEANSIGNAL_LOCAL_LOKI="$(LOCAL_LOKI)" \
-	LEANSIGNAL_LOKI_ENDPOINT="$(CLOUD_DATAPLANE)" \
+	LEANSIGNAL_LOCAL_TEMPO="$(LOCAL_TEMPO)" \
+	LEANSIGNAL_LOCAL_TEMPO_INGEST="$(LOCAL_TEMPO_INGEST)" \
 	$(BUILD_DIR)/$(BINARY) --config config/agent-config.cloud.yaml
 
 .PHONY: snapshot
