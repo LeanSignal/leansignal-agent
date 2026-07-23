@@ -107,6 +107,29 @@ receivers:
       network: {}
       paging: {}
 
+  # The co-located stores' own /metrics (avm vm_*, aloki loki_*, atempo tempo_*)
+  # — agent-stack self-monitoring (local disk usage, ~1h window pressure, ingest
+  # errors). Rides metrics/all like everything else: full fidelity locally,
+  # forwarded to the tenant only when demanded. Stable job names so demand
+  # selectors and dashboards can scope to exactly these series. On installs
+  # without a local Loki/Tempo (--no-loki / --no-tempo) the corresponding scrape
+  # just reports up=0 — harmless; remove its job if you prefer.
+  prometheus/localstores:
+    config:
+      scrape_configs:
+        - job_name: leansignal-avm
+          scrape_interval: 30s
+          static_configs:
+            - targets: [127.0.0.1:8428]
+        - job_name: leansignal-aloki
+          scrape_interval: 30s
+          static_configs:
+            - targets: [127.0.0.1:3100]
+        - job_name: leansignal-atempo
+          scrape_interval: 30s
+          static_configs:
+            - targets: [127.0.0.1:3200]
+
 processors:
   batch:
     send_batch_size: 5000
@@ -237,7 +260,7 @@ service:
     # Everything: tracked, written to the local VM in full, and forwarded on.
     # (The collector's own metrics arrive here via OTLP too — see service.telemetry.)
     metrics/all:
-      receivers: [otlp, hostmetrics]
+      receivers: [otlp, hostmetrics, prometheus/localstores]
       processors: [resourcedetection, resource, leansignalmetrics_tracker, batch]
       exporters: [prometheusremotewrite/local, forward/demand_filter]
 

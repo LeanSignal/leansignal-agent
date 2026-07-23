@@ -5,6 +5,14 @@ All notable changes to this project are documented here. The format is based on
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
+### Added
+- **Local-store self-monitoring.** The agent scrapes its co-located stores' own
+  `/metrics` (avm `vm_*`, aloki `loki_*`, atempo `tempo_*`) into the metrics
+  pipeline — job names `leansignal-avm` / `leansignal-aloki` /
+  `leansignal-atempo` — so agent-stack health (local disk usage, window
+  pressure, ingest errors) is demandable like any other metric. Central mode
+  only; Helm toggle `localStores.scrape.enabled` (default on), host config gains
+  the equivalent `prometheus/localstores` receiver.
 
 ## [0.6.4] - 2026-07-22
 ### Added

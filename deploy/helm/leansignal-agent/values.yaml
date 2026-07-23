@@ -66,6 +66,15 @@ dataplane:
   # https://<tenant>-metrics-ingest.<region>.
   endpoint: ""
 
+# Scrape the co-located stores' own /metrics (avm vm_*, aloki loki_*, atempo
+# tempo_*) into the metrics pipeline — agent-stack health (local disk, window
+# pressure, ingest errors) becomes demandable like any other metric. Central
+# mode only; jobs are named leansignal-avm / leansignal-aloki / leansignal-atempo.
+localStores:
+  scrape:
+    enabled: true
+    interval: 30s
+
 # Local, full-fidelity VictoriaMetrics that receives everything.
 localVM:
   # Prometheus remote-write endpoint of the local store. When the bundled
