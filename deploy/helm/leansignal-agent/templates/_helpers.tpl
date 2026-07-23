@@ -76,7 +76,20 @@ central
 {{- if .Values.receivers.otlp.enabled -}}{{- $r = append $r "otlp" -}}{{- end -}}
 {{- if .Values.receivers.k8sCluster.enabled -}}{{- $r = append $r "k8s_cluster" -}}{{- end -}}
 {{- if .Values.receivers.kubeletStats.enabled -}}{{- $r = append $r "kubeletstats" -}}{{- end -}}
+{{- if and (eq (include "leansignal-agent.mode" .) "central") .Values.localStores.scrape.enabled -}}{{- $r = append $r "prometheus/localstores" -}}{{- end -}}
 {{- join ", " $r -}}
+{{- end -}}
+
+{{/* host:port scrape targets for the co-located stores' own /metrics pages —
+     the query-endpoint URLs with the scheme stripped. */}}
+{{- define "leansignal-agent.localVMScrapeTarget" -}}
+{{- include "leansignal-agent.localVMQueryEndpoint" . | trimPrefix "https://" | trimPrefix "http://" -}}
+{{- end -}}
+{{- define "leansignal-agent.localLokiScrapeTarget" -}}
+{{- include "leansignal-agent.localLokiQueryEndpoint" . | trimPrefix "https://" | trimPrefix "http://" -}}
+{{- end -}}
+{{- define "leansignal-agent.localTempoScrapeTarget" -}}
+{{- include "leansignal-agent.localTempoQueryEndpoint" . | trimPrefix "https://" | trimPrefix "http://" -}}
 {{- end -}}
 
 {{/* Comma-separated list of enabled receivers for the logs/all pipeline. */}}

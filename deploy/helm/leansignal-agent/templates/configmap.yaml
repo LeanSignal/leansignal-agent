@@ -59,6 +59,32 @@ data:
           grpc:
             endpoint: 0.0.0.0:3600
     {{- end }}
+    {{- if and (eq $mode "central") .Values.localStores.scrape.enabled }}
+      # The co-located stores' own /metrics (avm vm_*, aloki loki_*, atempo
+      # tempo_*) — agent-stack self-monitoring. Rides metrics/all like every
+      # metric: full fidelity in the local store, forwarded to the tenant only
+      # when demanded. Stable job names (leansignal-avm/-aloki/-atempo) so
+      # demand selectors and dashboards can scope to exactly these series.
+      prometheus/localstores:
+        config:
+          scrape_configs:
+            - job_name: leansignal-avm
+              scrape_interval: {{ .Values.localStores.scrape.interval }}
+              static_configs:
+                - targets: [{{ include "leansignal-agent.localVMScrapeTarget" . | quote }}]
+    {{- if $logs }}
+            - job_name: leansignal-aloki
+              scrape_interval: {{ .Values.localStores.scrape.interval }}
+              static_configs:
+                - targets: [{{ include "leansignal-agent.localLokiScrapeTarget" . | quote }}]
+    {{- end }}
+    {{- if $traces }}
+            - job_name: leansignal-atempo
+              scrape_interval: {{ .Values.localStores.scrape.interval }}
+              static_configs:
+                - targets: [{{ include "leansignal-agent.localTempoScrapeTarget" . | quote }}]
+    {{- end }}
+    {{- end }}
     processors:
       memory_limiter:
         check_interval: 1s
