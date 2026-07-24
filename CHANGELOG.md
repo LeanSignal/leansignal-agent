@@ -6,6 +6,17 @@ All notable changes to this project are documented here. The format is based on
 
 ## [Unreleased]
 ### Added
+- **Pause-on-limit backoff for the tenant ingest exporters.** A new
+  `leansignal_ingest_backoff` extension (`components/ingestbackoff`) plugs into
+  the `auth` slot of `prometheusremotewrite/dataplane`, `otlphttp/loki_tenant`
+  and `otlphttp/tempo_tenant` (one instance per signal). When the ingest edge
+  rejects a push with **403** — LeanSignal's "ingest limit exceeded" answer
+  (storage ceiling or monthly ingest budget, enforced by lean-api's
+  forward-auth) — that signal's pushes are suppressed **locally** (batches
+  dropped as permanent errors, zero network traffic, no retry-queue growth) and
+  exactly ONE probe goes out per `retry_interval` (default `1m`); a probe
+  success resumes pushing immediately. Local-store fidelity is unaffected.
+  State transitions are logged once (`pausing pushes` / `pushes resumed`).
 - **Local-store self-monitoring.** The agent scrapes its co-located stores' own
   `/metrics` (avm `vm_*`, aloki `loki_*`, atempo `tempo_*`) into the metrics
   pipeline — job names `leansignal-avm` / `leansignal-aloki` /
