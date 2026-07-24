@@ -112,6 +112,32 @@ message DemandSet {
   // matchers are ignored agent-side (those labels only materialize at
   // remote-write); an empty list blocks all metrics (fail-closed).
   repeated string metric_selectors = 5;
+  // The SAME trace selectors as field 4, each paired with the id of the filter
+  // it came from, so the agent can route matching spans to a per-rule Tempo org
+  // (`<tenant>__<filter_id>`) instead of one org per tenant.
+  //
+  // Why the org matters: Tempo has no selective delete. Deleting one trace
+  // ingestion rule can only expire data at org granularity, so a rule's spans
+  // must land in their own org to be purgeable at all — otherwise removing a
+  // rule leaves its spans until the tenant-wide retention expires them.
+  //
+  // Field 4 stays populated verbatim for agents that predate this field: they
+  // keep filtering identically and keep pushing to the tenant-wide org, so an
+  // old agent degrades to today's behaviour rather than breaking. A resource
+  // matched by several rules is exported once PER matching rule (duplicated) —
+  // that duplication is the price of per-rule deletion.
+  repeated TraceDemand trace_demands = 6;
+}
+
+// TraceDemand is one trace resource selector plus the identity of the demand-set
+// filter that asked for it.
+message TraceDemand {
+  // Normalized trace resource selector, identical in form to DemandSet.trace_selectors.
+  string selector = 1;
+  // The `filters` row id (UUID) this selector was materialized from. Stable for
+  // the life of the filter, and the suffix of the Tempo org the agent pushes
+  // matching spans to.
+  string filter_id = 2;
 }
 
 // GetStatus asks the agent to report its current status (reply via CommandResult).

@@ -248,8 +248,22 @@ exporters:
     retry_on_failure:
       enabled: true
 
-  # TENANT Tempo - long retention. Receives only the demanded resources' spans.
-  # The Bearer agent key is the same credential as the other ingest planes.
+  # TENANT Tempo - long retention, ONE ORG PER TRACE INGESTION RULE.
+  #
+  # leansignal_trace_router replaces otlphttp here because the push path encodes
+  # which rule demanded the spans (/v1/traces/r/<filter-id>) and otlphttp's
+  # endpoint is fixed at config time. lean-api forward-auths that path into
+  # `X-Scope-OrgID: <tenant>__<filter-id>`, so each rule's spans land in their
+  # own Tempo org — the only granularity at which Tempo can later delete them,
+  # which is what makes deleting a trace rule actually purge its traces.
+  leansignal_trace_router:
+    endpoint: "${leansignal:tempo}"
+    headers:
+      Authorization: "Bearer ${env:LEANSIGNAL_AGENT_KEY}"
+    timeout: 30s
+
+  # Kept for reference / rollback: the pre-per-rule tenant exporter, one org for
+  # the whole tenant. Unreferenced by any pipeline.
   otlphttp/tempo_tenant:
     traces_endpoint: "${leansignal:tempo}/v1/traces"
     headers:
@@ -312,7 +326,7 @@ service:
     traces/filtered:
       receivers: [forward/trace_demand_filter]
       processors: [leansignal_trace_demand_filter, batch]
-      exporters: [otlphttp/tempo_tenant]
+      exporters: [leansignal_trace_router]
 
   telemetry:
     # SELF-MONITORING. The collector's OWN telemetry — metrics, logs AND traces —

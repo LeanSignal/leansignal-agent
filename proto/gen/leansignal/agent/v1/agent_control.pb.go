@@ -702,8 +702,23 @@ type DemandSet struct {
 	// matchers are ignored agent-side (those labels only materialize at
 	// remote-write); an empty list blocks all metrics (fail-closed).
 	MetricSelectors []string `protobuf:"bytes,5,rep,name=metric_selectors,json=metricSelectors,proto3" json:"metric_selectors,omitempty"`
-	unknownFields   protoimpl.UnknownFields
-	sizeCache       protoimpl.SizeCache
+	// The SAME trace selectors as field 4, each paired with the id of the filter
+	// it came from, so the agent can route matching spans to a per-rule Tempo org
+	// (`<tenant>__<filter_id>`) instead of one org per tenant.
+	//
+	// Why the org matters: Tempo has no selective delete. Deleting one trace
+	// ingestion rule can only expire data at org granularity, so a rule's spans
+	// must land in their own org to be purgeable at all — otherwise removing a
+	// rule leaves its spans until the tenant-wide retention expires them.
+	//
+	// Field 4 stays populated verbatim for agents that predate this field: they
+	// keep filtering identically and keep pushing to the tenant-wide org, so an
+	// old agent degrades to today's behaviour rather than breaking. A resource
+	// matched by several rules is exported once PER matching rule (duplicated) —
+	// that duplication is the price of per-rule deletion.
+	TraceDemands  []*TraceDemand `protobuf:"bytes,6,rep,name=trace_demands,json=traceDemands,proto3" json:"trace_demands,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *DemandSet) Reset() {
@@ -771,6 +786,71 @@ func (x *DemandSet) GetMetricSelectors() []string {
 	return nil
 }
 
+func (x *DemandSet) GetTraceDemands() []*TraceDemand {
+	if x != nil {
+		return x.TraceDemands
+	}
+	return nil
+}
+
+// TraceDemand is one trace resource selector plus the identity of the demand-set
+// filter that asked for it.
+type TraceDemand struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Normalized trace resource selector, identical in form to DemandSet.trace_selectors.
+	Selector string `protobuf:"bytes,1,opt,name=selector,proto3" json:"selector,omitempty"`
+	// The `filters` row id (UUID) this selector was materialized from. Stable for
+	// the life of the filter, and the suffix of the Tempo org the agent pushes
+	// matching spans to.
+	FilterId      string `protobuf:"bytes,2,opt,name=filter_id,json=filterId,proto3" json:"filter_id,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *TraceDemand) Reset() {
+	*x = TraceDemand{}
+	mi := &file_leansignal_agent_v1_agent_control_proto_msgTypes[12]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *TraceDemand) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*TraceDemand) ProtoMessage() {}
+
+func (x *TraceDemand) ProtoReflect() protoreflect.Message {
+	mi := &file_leansignal_agent_v1_agent_control_proto_msgTypes[12]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use TraceDemand.ProtoReflect.Descriptor instead.
+func (*TraceDemand) Descriptor() ([]byte, []int) {
+	return file_leansignal_agent_v1_agent_control_proto_rawDescGZIP(), []int{12}
+}
+
+func (x *TraceDemand) GetSelector() string {
+	if x != nil {
+		return x.Selector
+	}
+	return ""
+}
+
+func (x *TraceDemand) GetFilterId() string {
+	if x != nil {
+		return x.FilterId
+	}
+	return ""
+}
+
 // GetStatus asks the agent to report its current status (reply via CommandResult).
 type GetStatus struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
@@ -780,7 +860,7 @@ type GetStatus struct {
 
 func (x *GetStatus) Reset() {
 	*x = GetStatus{}
-	mi := &file_leansignal_agent_v1_agent_control_proto_msgTypes[12]
+	mi := &file_leansignal_agent_v1_agent_control_proto_msgTypes[13]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -792,7 +872,7 @@ func (x *GetStatus) String() string {
 func (*GetStatus) ProtoMessage() {}
 
 func (x *GetStatus) ProtoReflect() protoreflect.Message {
-	mi := &file_leansignal_agent_v1_agent_control_proto_msgTypes[12]
+	mi := &file_leansignal_agent_v1_agent_control_proto_msgTypes[13]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -805,7 +885,7 @@ func (x *GetStatus) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetStatus.ProtoReflect.Descriptor instead.
 func (*GetStatus) Descriptor() ([]byte, []int) {
-	return file_leansignal_agent_v1_agent_control_proto_rawDescGZIP(), []int{12}
+	return file_leansignal_agent_v1_agent_control_proto_rawDescGZIP(), []int{13}
 }
 
 // UpdateConfig pushes an opaque config blob to the agent.
@@ -818,7 +898,7 @@ type UpdateConfig struct {
 
 func (x *UpdateConfig) Reset() {
 	*x = UpdateConfig{}
-	mi := &file_leansignal_agent_v1_agent_control_proto_msgTypes[13]
+	mi := &file_leansignal_agent_v1_agent_control_proto_msgTypes[14]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -830,7 +910,7 @@ func (x *UpdateConfig) String() string {
 func (*UpdateConfig) ProtoMessage() {}
 
 func (x *UpdateConfig) ProtoReflect() protoreflect.Message {
-	mi := &file_leansignal_agent_v1_agent_control_proto_msgTypes[13]
+	mi := &file_leansignal_agent_v1_agent_control_proto_msgTypes[14]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -843,7 +923,7 @@ func (x *UpdateConfig) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use UpdateConfig.ProtoReflect.Descriptor instead.
 func (*UpdateConfig) Descriptor() ([]byte, []int) {
-	return file_leansignal_agent_v1_agent_control_proto_rawDescGZIP(), []int{13}
+	return file_leansignal_agent_v1_agent_control_proto_rawDescGZIP(), []int{14}
 }
 
 func (x *UpdateConfig) GetConfig() []byte {
@@ -864,7 +944,7 @@ type GetDiagnosis struct {
 
 func (x *GetDiagnosis) Reset() {
 	*x = GetDiagnosis{}
-	mi := &file_leansignal_agent_v1_agent_control_proto_msgTypes[14]
+	mi := &file_leansignal_agent_v1_agent_control_proto_msgTypes[15]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -876,7 +956,7 @@ func (x *GetDiagnosis) String() string {
 func (*GetDiagnosis) ProtoMessage() {}
 
 func (x *GetDiagnosis) ProtoReflect() protoreflect.Message {
-	mi := &file_leansignal_agent_v1_agent_control_proto_msgTypes[14]
+	mi := &file_leansignal_agent_v1_agent_control_proto_msgTypes[15]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -889,7 +969,7 @@ func (x *GetDiagnosis) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetDiagnosis.ProtoReflect.Descriptor instead.
 func (*GetDiagnosis) Descriptor() ([]byte, []int) {
-	return file_leansignal_agent_v1_agent_control_proto_rawDescGZIP(), []int{14}
+	return file_leansignal_agent_v1_agent_control_proto_rawDescGZIP(), []int{15}
 }
 
 // Header is a single HTTP header with one or more values.
@@ -903,7 +983,7 @@ type Header struct {
 
 func (x *Header) Reset() {
 	*x = Header{}
-	mi := &file_leansignal_agent_v1_agent_control_proto_msgTypes[15]
+	mi := &file_leansignal_agent_v1_agent_control_proto_msgTypes[16]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -915,7 +995,7 @@ func (x *Header) String() string {
 func (*Header) ProtoMessage() {}
 
 func (x *Header) ProtoReflect() protoreflect.Message {
-	mi := &file_leansignal_agent_v1_agent_control_proto_msgTypes[15]
+	mi := &file_leansignal_agent_v1_agent_control_proto_msgTypes[16]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -928,7 +1008,7 @@ func (x *Header) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Header.ProtoReflect.Descriptor instead.
 func (*Header) Descriptor() ([]byte, []int) {
-	return file_leansignal_agent_v1_agent_control_proto_rawDescGZIP(), []int{15}
+	return file_leansignal_agent_v1_agent_control_proto_rawDescGZIP(), []int{16}
 }
 
 func (x *Header) GetName() string {
@@ -961,7 +1041,7 @@ type QueryRequest struct {
 
 func (x *QueryRequest) Reset() {
 	*x = QueryRequest{}
-	mi := &file_leansignal_agent_v1_agent_control_proto_msgTypes[16]
+	mi := &file_leansignal_agent_v1_agent_control_proto_msgTypes[17]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -973,7 +1053,7 @@ func (x *QueryRequest) String() string {
 func (*QueryRequest) ProtoMessage() {}
 
 func (x *QueryRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_leansignal_agent_v1_agent_control_proto_msgTypes[16]
+	mi := &file_leansignal_agent_v1_agent_control_proto_msgTypes[17]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -986,7 +1066,7 @@ func (x *QueryRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use QueryRequest.ProtoReflect.Descriptor instead.
 func (*QueryRequest) Descriptor() ([]byte, []int) {
-	return file_leansignal_agent_v1_agent_control_proto_rawDescGZIP(), []int{16}
+	return file_leansignal_agent_v1_agent_control_proto_rawDescGZIP(), []int{17}
 }
 
 func (x *QueryRequest) GetMethod() string {
@@ -1044,7 +1124,7 @@ type QueryResponse struct {
 
 func (x *QueryResponse) Reset() {
 	*x = QueryResponse{}
-	mi := &file_leansignal_agent_v1_agent_control_proto_msgTypes[17]
+	mi := &file_leansignal_agent_v1_agent_control_proto_msgTypes[18]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1056,7 +1136,7 @@ func (x *QueryResponse) String() string {
 func (*QueryResponse) ProtoMessage() {}
 
 func (x *QueryResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_leansignal_agent_v1_agent_control_proto_msgTypes[17]
+	mi := &file_leansignal_agent_v1_agent_control_proto_msgTypes[18]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1069,7 +1149,7 @@ func (x *QueryResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use QueryResponse.ProtoReflect.Descriptor instead.
 func (*QueryResponse) Descriptor() ([]byte, []int) {
-	return file_leansignal_agent_v1_agent_control_proto_rawDescGZIP(), []int{17}
+	return file_leansignal_agent_v1_agent_control_proto_rawDescGZIP(), []int{18}
 }
 
 func (x *QueryResponse) GetStatusCode() int32 {
@@ -1122,7 +1202,7 @@ type AgentMessage struct {
 
 func (x *AgentMessage) Reset() {
 	*x = AgentMessage{}
-	mi := &file_leansignal_agent_v1_agent_control_proto_msgTypes[18]
+	mi := &file_leansignal_agent_v1_agent_control_proto_msgTypes[19]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1134,7 +1214,7 @@ func (x *AgentMessage) String() string {
 func (*AgentMessage) ProtoMessage() {}
 
 func (x *AgentMessage) ProtoReflect() protoreflect.Message {
-	mi := &file_leansignal_agent_v1_agent_control_proto_msgTypes[18]
+	mi := &file_leansignal_agent_v1_agent_control_proto_msgTypes[19]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1147,7 +1227,7 @@ func (x *AgentMessage) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use AgentMessage.ProtoReflect.Descriptor instead.
 func (*AgentMessage) Descriptor() ([]byte, []int) {
-	return file_leansignal_agent_v1_agent_control_proto_rawDescGZIP(), []int{18}
+	return file_leansignal_agent_v1_agent_control_proto_rawDescGZIP(), []int{19}
 }
 
 func (x *AgentMessage) GetCorrelationId() uint64 {
@@ -1295,7 +1375,7 @@ type ServerMessage struct {
 
 func (x *ServerMessage) Reset() {
 	*x = ServerMessage{}
-	mi := &file_leansignal_agent_v1_agent_control_proto_msgTypes[19]
+	mi := &file_leansignal_agent_v1_agent_control_proto_msgTypes[20]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1307,7 +1387,7 @@ func (x *ServerMessage) String() string {
 func (*ServerMessage) ProtoMessage() {}
 
 func (x *ServerMessage) ProtoReflect() protoreflect.Message {
-	mi := &file_leansignal_agent_v1_agent_control_proto_msgTypes[19]
+	mi := &file_leansignal_agent_v1_agent_control_proto_msgTypes[20]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1320,7 +1400,7 @@ func (x *ServerMessage) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ServerMessage.ProtoReflect.Descriptor instead.
 func (*ServerMessage) Descriptor() ([]byte, []int) {
-	return file_leansignal_agent_v1_agent_control_proto_rawDescGZIP(), []int{19}
+	return file_leansignal_agent_v1_agent_control_proto_rawDescGZIP(), []int{20}
 }
 
 func (x *ServerMessage) GetCorrelationId() uint64 {
@@ -1486,13 +1566,17 @@ const file_leansignal_agent_v1_agent_control_proto_rawDesc = "" +
 	"\x04Pong\"9\n" +
 	"\x03Ack\x12\x18\n" +
 	"\asuccess\x18\x01 \x01(\bR\asuccess\x12\x18\n" +
-	"\amessage\x18\x02 \x01(\tR\amessage\"\xb2\x01\n" +
+	"\amessage\x18\x02 \x01(\tR\amessage\"\xf9\x01\n" +
 	"\tDemandSet\x12\x18\n" +
 	"\ametrics\x18\x01 \x03(\tR\ametrics\x12\x12\n" +
 	"\x04hash\x18\x02 \x01(\x04R\x04hash\x12#\n" +
 	"\rlog_selectors\x18\x03 \x03(\tR\flogSelectors\x12'\n" +
 	"\x0ftrace_selectors\x18\x04 \x03(\tR\x0etraceSelectors\x12)\n" +
-	"\x10metric_selectors\x18\x05 \x03(\tR\x0fmetricSelectors\"\v\n" +
+	"\x10metric_selectors\x18\x05 \x03(\tR\x0fmetricSelectors\x12E\n" +
+	"\rtrace_demands\x18\x06 \x03(\v2 .leansignal.agent.v1.TraceDemandR\ftraceDemands\"F\n" +
+	"\vTraceDemand\x12\x1a\n" +
+	"\bselector\x18\x01 \x01(\tR\bselector\x12\x1b\n" +
+	"\tfilter_id\x18\x02 \x01(\tR\bfilterId\"\v\n" +
 	"\tGetStatus\"&\n" +
 	"\fUpdateConfig\x12\x16\n" +
 	"\x06config\x18\x01 \x01(\fR\x06config\"\x0e\n" +
@@ -1555,7 +1639,7 @@ func file_leansignal_agent_v1_agent_control_proto_rawDescGZIP() []byte {
 }
 
 var file_leansignal_agent_v1_agent_control_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
-var file_leansignal_agent_v1_agent_control_proto_msgTypes = make([]protoimpl.MessageInfo, 20)
+var file_leansignal_agent_v1_agent_control_proto_msgTypes = make([]protoimpl.MessageInfo, 21)
 var file_leansignal_agent_v1_agent_control_proto_goTypes = []any{
 	(QueryTarget)(0),         // 0: leansignal.agent.v1.QueryTarget
 	(*Label)(nil),            // 1: leansignal.agent.v1.Label
@@ -1570,43 +1654,45 @@ var file_leansignal_agent_v1_agent_control_proto_goTypes = []any{
 	(*Pong)(nil),             // 10: leansignal.agent.v1.Pong
 	(*Ack)(nil),              // 11: leansignal.agent.v1.Ack
 	(*DemandSet)(nil),        // 12: leansignal.agent.v1.DemandSet
-	(*GetStatus)(nil),        // 13: leansignal.agent.v1.GetStatus
-	(*UpdateConfig)(nil),     // 14: leansignal.agent.v1.UpdateConfig
-	(*GetDiagnosis)(nil),     // 15: leansignal.agent.v1.GetDiagnosis
-	(*Header)(nil),           // 16: leansignal.agent.v1.Header
-	(*QueryRequest)(nil),     // 17: leansignal.agent.v1.QueryRequest
-	(*QueryResponse)(nil),    // 18: leansignal.agent.v1.QueryResponse
-	(*AgentMessage)(nil),     // 19: leansignal.agent.v1.AgentMessage
-	(*ServerMessage)(nil),    // 20: leansignal.agent.v1.ServerMessage
+	(*TraceDemand)(nil),      // 13: leansignal.agent.v1.TraceDemand
+	(*GetStatus)(nil),        // 14: leansignal.agent.v1.GetStatus
+	(*UpdateConfig)(nil),     // 15: leansignal.agent.v1.UpdateConfig
+	(*GetDiagnosis)(nil),     // 16: leansignal.agent.v1.GetDiagnosis
+	(*Header)(nil),           // 17: leansignal.agent.v1.Header
+	(*QueryRequest)(nil),     // 18: leansignal.agent.v1.QueryRequest
+	(*QueryResponse)(nil),    // 19: leansignal.agent.v1.QueryResponse
+	(*AgentMessage)(nil),     // 20: leansignal.agent.v1.AgentMessage
+	(*ServerMessage)(nil),    // 21: leansignal.agent.v1.ServerMessage
 }
 var file_leansignal_agent_v1_agent_control_proto_depIdxs = []int32{
 	1,  // 0: leansignal.agent.v1.DiscoveredSeries.labels:type_name -> leansignal.agent.v1.Label
 	2,  // 1: leansignal.agent.v1.IndexCreate.series:type_name -> leansignal.agent.v1.DiscoveredSeries
 	3,  // 2: leansignal.agent.v1.IndexUpdate.series:type_name -> leansignal.agent.v1.ActiveSeries
-	16, // 3: leansignal.agent.v1.QueryRequest.headers:type_name -> leansignal.agent.v1.Header
-	0,  // 4: leansignal.agent.v1.QueryRequest.target:type_name -> leansignal.agent.v1.QueryTarget
-	16, // 5: leansignal.agent.v1.QueryResponse.headers:type_name -> leansignal.agent.v1.Header
-	4,  // 6: leansignal.agent.v1.AgentMessage.hello:type_name -> leansignal.agent.v1.Hello
-	5,  // 7: leansignal.agent.v1.AgentMessage.ping:type_name -> leansignal.agent.v1.Ping
-	6,  // 8: leansignal.agent.v1.AgentMessage.index_create:type_name -> leansignal.agent.v1.IndexCreate
-	7,  // 9: leansignal.agent.v1.AgentMessage.index_update:type_name -> leansignal.agent.v1.IndexUpdate
-	8,  // 10: leansignal.agent.v1.AgentMessage.index_delete:type_name -> leansignal.agent.v1.IndexDelete
-	9,  // 11: leansignal.agent.v1.AgentMessage.command_result:type_name -> leansignal.agent.v1.CommandResult
-	18, // 12: leansignal.agent.v1.AgentMessage.query_response:type_name -> leansignal.agent.v1.QueryResponse
-	10, // 13: leansignal.agent.v1.ServerMessage.pong:type_name -> leansignal.agent.v1.Pong
-	11, // 14: leansignal.agent.v1.ServerMessage.ack:type_name -> leansignal.agent.v1.Ack
-	12, // 15: leansignal.agent.v1.ServerMessage.demand_set:type_name -> leansignal.agent.v1.DemandSet
-	13, // 16: leansignal.agent.v1.ServerMessage.get_status:type_name -> leansignal.agent.v1.GetStatus
-	14, // 17: leansignal.agent.v1.ServerMessage.update_config:type_name -> leansignal.agent.v1.UpdateConfig
-	17, // 18: leansignal.agent.v1.ServerMessage.query_request:type_name -> leansignal.agent.v1.QueryRequest
-	15, // 19: leansignal.agent.v1.ServerMessage.get_diagnosis:type_name -> leansignal.agent.v1.GetDiagnosis
-	19, // 20: leansignal.agent.v1.AgentControl.Connect:input_type -> leansignal.agent.v1.AgentMessage
-	20, // 21: leansignal.agent.v1.AgentControl.Connect:output_type -> leansignal.agent.v1.ServerMessage
-	21, // [21:22] is the sub-list for method output_type
-	20, // [20:21] is the sub-list for method input_type
-	20, // [20:20] is the sub-list for extension type_name
-	20, // [20:20] is the sub-list for extension extendee
-	0,  // [0:20] is the sub-list for field type_name
+	13, // 3: leansignal.agent.v1.DemandSet.trace_demands:type_name -> leansignal.agent.v1.TraceDemand
+	17, // 4: leansignal.agent.v1.QueryRequest.headers:type_name -> leansignal.agent.v1.Header
+	0,  // 5: leansignal.agent.v1.QueryRequest.target:type_name -> leansignal.agent.v1.QueryTarget
+	17, // 6: leansignal.agent.v1.QueryResponse.headers:type_name -> leansignal.agent.v1.Header
+	4,  // 7: leansignal.agent.v1.AgentMessage.hello:type_name -> leansignal.agent.v1.Hello
+	5,  // 8: leansignal.agent.v1.AgentMessage.ping:type_name -> leansignal.agent.v1.Ping
+	6,  // 9: leansignal.agent.v1.AgentMessage.index_create:type_name -> leansignal.agent.v1.IndexCreate
+	7,  // 10: leansignal.agent.v1.AgentMessage.index_update:type_name -> leansignal.agent.v1.IndexUpdate
+	8,  // 11: leansignal.agent.v1.AgentMessage.index_delete:type_name -> leansignal.agent.v1.IndexDelete
+	9,  // 12: leansignal.agent.v1.AgentMessage.command_result:type_name -> leansignal.agent.v1.CommandResult
+	19, // 13: leansignal.agent.v1.AgentMessage.query_response:type_name -> leansignal.agent.v1.QueryResponse
+	10, // 14: leansignal.agent.v1.ServerMessage.pong:type_name -> leansignal.agent.v1.Pong
+	11, // 15: leansignal.agent.v1.ServerMessage.ack:type_name -> leansignal.agent.v1.Ack
+	12, // 16: leansignal.agent.v1.ServerMessage.demand_set:type_name -> leansignal.agent.v1.DemandSet
+	14, // 17: leansignal.agent.v1.ServerMessage.get_status:type_name -> leansignal.agent.v1.GetStatus
+	15, // 18: leansignal.agent.v1.ServerMessage.update_config:type_name -> leansignal.agent.v1.UpdateConfig
+	18, // 19: leansignal.agent.v1.ServerMessage.query_request:type_name -> leansignal.agent.v1.QueryRequest
+	16, // 20: leansignal.agent.v1.ServerMessage.get_diagnosis:type_name -> leansignal.agent.v1.GetDiagnosis
+	20, // 21: leansignal.agent.v1.AgentControl.Connect:input_type -> leansignal.agent.v1.AgentMessage
+	21, // 22: leansignal.agent.v1.AgentControl.Connect:output_type -> leansignal.agent.v1.ServerMessage
+	22, // [22:23] is the sub-list for method output_type
+	21, // [21:22] is the sub-list for method input_type
+	21, // [21:21] is the sub-list for extension type_name
+	21, // [21:21] is the sub-list for extension extendee
+	0,  // [0:21] is the sub-list for field type_name
 }
 
 func init() { file_leansignal_agent_v1_agent_control_proto_init() }
@@ -1614,7 +1700,7 @@ func file_leansignal_agent_v1_agent_control_proto_init() {
 	if File_leansignal_agent_v1_agent_control_proto != nil {
 		return
 	}
-	file_leansignal_agent_v1_agent_control_proto_msgTypes[18].OneofWrappers = []any{
+	file_leansignal_agent_v1_agent_control_proto_msgTypes[19].OneofWrappers = []any{
 		(*AgentMessage_Hello)(nil),
 		(*AgentMessage_Ping)(nil),
 		(*AgentMessage_IndexCreate)(nil),
@@ -1623,7 +1709,7 @@ func file_leansignal_agent_v1_agent_control_proto_init() {
 		(*AgentMessage_CommandResult)(nil),
 		(*AgentMessage_QueryResponse)(nil),
 	}
-	file_leansignal_agent_v1_agent_control_proto_msgTypes[19].OneofWrappers = []any{
+	file_leansignal_agent_v1_agent_control_proto_msgTypes[20].OneofWrappers = []any{
 		(*ServerMessage_Pong)(nil),
 		(*ServerMessage_Ack)(nil),
 		(*ServerMessage_DemandSet)(nil),
@@ -1638,7 +1724,7 @@ func file_leansignal_agent_v1_agent_control_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_leansignal_agent_v1_agent_control_proto_rawDesc), len(file_leansignal_agent_v1_agent_control_proto_rawDesc)),
 			NumEnums:      1,
-			NumMessages:   20,
+			NumMessages:   21,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

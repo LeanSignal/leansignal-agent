@@ -25,6 +25,8 @@ import (
 	"go.opentelemetry.io/collector/consumer"
 	"go.opentelemetry.io/collector/pdata/ptrace"
 	"go.uber.org/zap"
+
+	"github.com/leansignal/leansignal-agent/components/tracedemand"
 )
 
 // ---------------------------------------------------------------------------
@@ -361,5 +363,89 @@ func TestStartFindsProviderAmongOtherExtensions(t *testing.T) {
 	}
 	if p.provider == nil {
 		t.Fatal("expected provider to be resolved from extensions")
+	}
+}
+
+// --- per-rule routing -------------------------------------------------------
+
+type routeProvider struct {
+	selectors []string
+	routes    []tracedemand.Route
+}
+
+func (r *routeProvider) GetTraceDemands() []string           { return r.selectors }
+func (r *routeProvider) GetTraceRoutes() []tracedemand.Route { return r.routes }
+
+// A resource demanded by TWO rules must be emitted twice — once stamped for each
+// rule's Tempo org. Without the duplicate, deleting one rule (and expiring its
+// org) would take the other rule's spans with it.
+func TestConsumeTraces_EmitsOneCopyPerMatchingRule(t *testing.T) {
+	sink := &mockConsumer{}
+	p := newTraceDemandFilterProcessor(zap.NewNop(), sink, &Config{})
+	p.provider = &routeProvider{}
+	p.routes = &routeProvider{routes: []tracedemand.Route{
+		{FilterID: "rule-a", Selector: `{resource.service.name="checkout"}`},
+		{FilterID: "rule-b", Selector: `{resource.service.name=~"check.*"}`},
+		{FilterID: "rule-c", Selector: `{resource.service.name="cart"}`},
+	}}
+
+	td := ptrace.NewTraces()
+	rs := td.ResourceSpans().AppendEmpty()
+	rs.Resource().Attributes().PutStr("service.name", "checkout")
+	rs.ScopeSpans().AppendEmpty().Spans().AppendEmpty().SetName("s1")
+
+	if err := p.ConsumeTraces(context.Background(), td); err != nil {
+		t.Fatal(err)
+	}
+
+	if len(sink.batches) != 1 {
+		t.Fatalf("forwarded %d batches, want 1", len(sink.batches))
+	}
+
+	got := sink.batches[0]
+	if got.ResourceSpans().Len() != 2 {
+		t.Fatalf("emitted %d resource-spans, want one per matching rule (2)", got.ResourceSpans().Len())
+	}
+
+	stamped := map[string]bool{}
+	for i := 0; i < got.ResourceSpans().Len(); i++ {
+		v, ok := got.ResourceSpans().At(i).Resource().Attributes().Get(FilterIDAttr)
+		if !ok {
+			t.Fatal("emitted resource spans carry no filter id")
+		}
+
+		stamped[v.Str()] = true
+	}
+
+	if !stamped["rule-a"] || !stamped["rule-b"] {
+		t.Errorf("stamped ids = %v, want rule-a and rule-b", stamped)
+	}
+
+	if stamped["rule-c"] {
+		t.Error("rule-c does not match this resource and must not be stamped")
+	}
+}
+
+// Fail-closed still holds on the routed path: a resource no rule demands ships
+// nowhere.
+func TestConsumeTraces_RoutedDropsUndemandedResource(t *testing.T) {
+	sink := &mockConsumer{}
+	p := newTraceDemandFilterProcessor(zap.NewNop(), sink, &Config{})
+	p.provider = &routeProvider{}
+	p.routes = &routeProvider{routes: []tracedemand.Route{
+		{FilterID: "rule-a", Selector: `{resource.service.name="checkout"}`},
+	}}
+
+	td := ptrace.NewTraces()
+	rs := td.ResourceSpans().AppendEmpty()
+	rs.Resource().Attributes().PutStr("service.name", "unwanted")
+	rs.ScopeSpans().AppendEmpty().Spans().AppendEmpty().SetName("s1")
+
+	if err := p.ConsumeTraces(context.Background(), td); err != nil {
+		t.Fatal(err)
+	}
+
+	if len(sink.batches) != 0 {
+		t.Errorf("undemanded resource was forwarded (%d batches)", len(sink.batches))
 	}
 }

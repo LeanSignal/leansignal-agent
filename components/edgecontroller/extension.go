@@ -20,6 +20,7 @@ package leansignaledgecontroller
 import (
 	"context"
 	"crypto/tls"
+	"github.com/leansignal/leansignal-agent/components/tracedemand"
 	"sync"
 	"time"
 
@@ -159,6 +160,35 @@ func (e *edgeControllerExtension) GetLogDemands() []string {
 // leansignaltracedemandfilter.
 func (e *edgeControllerExtension) GetTraceDemands() []string {
 	return e.demandTimeseriesCache.GetDemands().TraceSelectors
+}
+
+// GetTraceRoutes returns the current per-rule trace routing table: each demanded
+// selector paired with the filter id whose Tempo org its spans belong in.
+// Empty against a server that predates per-rule routing, in which case the trace
+// demand filter falls back to GetTraceDemands and the tenant-wide org.
+func (e *edgeControllerExtension) GetTraceRoutes() []tracedemand.Route {
+	return e.demandTimeseriesCache.GetDemands().TraceRoutes
+}
+
+// traceRoutesFromProto converts the wire type, skipping entries missing either
+// half — a selector with no filter id cannot be routed, and routing is the whole
+// point of this list.
+func traceRoutesFromProto(in []*agentv1.TraceDemand) []tracedemand.Route {
+	if len(in) == 0 {
+		return nil
+	}
+
+	out := make([]tracedemand.Route, 0, len(in))
+
+	for _, d := range in {
+		if d.GetSelector() == "" || d.GetFilterId() == "" {
+			continue
+		}
+
+		out = append(out, tracedemand.Route{Selector: d.GetSelector(), FilterID: d.GetFilterId()})
+	}
+
+	return out
 }
 
 // GetMetricSelectors returns the current list of demanded (normalized) metric
@@ -395,13 +425,16 @@ func (e *edgeControllerExtension) handleServerMessage(msg *agentv1.ServerMessage
 		logSelectors := body.DemandSet.GetLogSelectors()
 		traceSelectors := body.DemandSet.GetTraceSelectors()
 		metricSelectors := body.DemandSet.GetMetricSelectors()
+		traceRoutes := traceRoutesFromProto(body.DemandSet.GetTraceDemands())
 		e.logger.Info("COMMAND_RECEIVED: demand_set",
 			zap.Int("metrics_count", len(metrics)),
 			zap.Int("log_selectors_count", len(logSelectors)),
 			zap.Int("trace_selectors_count", len(traceSelectors)),
 			zap.Int("metric_selectors_count", len(metricSelectors)),
+			zap.Int("trace_routes_count", len(traceRoutes)),
 		)
 		e.demandTimeseriesCache.UpdateDemands(metrics, logSelectors, traceSelectors, metricSelectors, body.DemandSet.GetHash())
+		e.demandTimeseriesCache.UpdateTraceRoutes(traceRoutes)
 		e.replyCommand(msg.GetCorrelationId(), true, "demand_set applied")
 	case *agentv1.ServerMessage_GetStatus:
 		e.logger.Info("COMMAND_RECEIVED: get_status")
