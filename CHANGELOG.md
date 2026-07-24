@@ -4,6 +4,46 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and this project follows
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.6.6] - 2026-07-24
+### Added
+- **One Tempo org per trace ingestion rule**, so deleting a rule actually purges
+  its spans. Tempo has no selective delete — a whole org is the smallest thing
+  that can be expired — so until now a deleted trace rule stopped collection but
+  left everything it had already stored until the tenant-wide retention aged it
+  out. Spans are now routed into `<tenant>__<filter-id>` orgs:
+  - `DemandSet.trace_demands` pairs each trace selector with the id of the
+    filter demanding it. `trace_selectors` (field 4) stays populated, so an
+    agent that predates this filters identically and keeps the tenant-wide org.
+  - `leansignal_trace_demand_filter` gains a routed path: instead of keep/drop
+    it emits one copy of each demanded `ResourceSpans` **per matching rule**,
+    stamped with that rule's id. A resource matched by three rules ships three
+    times — deliberate duplication, and the price of per-rule deletion, since
+    each org must hold its own copy. Fail-closed is preserved, and with no
+    routes the legacy path runs unchanged.
+  - `leansignal_trace_router` (new exporter) groups a batch by that stamp,
+    strips it, and POSTs each group to `<endpoint>/v1/traces/r/<filter-id>`;
+    lean-api's forward-auth turns the path into the org. The stock `otlphttp`
+    exporter cannot do this — its endpoint is fixed at config time — so only the
+    push is custom; queueing, retry and timeout stay with `exporterhelper`.
+    Unstamped spans go to `/v1/traces`, so an agent upgrade alone never moves
+    anyone's data.
+  The agent never names the org: it chooses the push path, and lean-api derives
+  the org after validating the rule belongs to that agent's tenant. The agent
+  runs in the customer's network, so letting it name the org would let it write
+  anywhere.
+
+### Changed
+- The `traces/filtered` pipeline exports through `leansignal_trace_router`
+  instead of `otlphttp/tempo_tenant` (Helm chart, docker-compose, cloud and
+  example configs). `agent-config.local.yaml` keeps `otlphttp/tempo_tenant`:
+  local dev has no ingress to forward-auth the per-rule path.
+
+### Requires
+- lean-api with per-rule trace orgs (`agent-auth` minting
+  `<tenant>__<filter-id>`, the purge worker expiring the org, and the dptempo
+  proxy querying the union of live orgs). Against an older lean-api the per-rule
+  paths forward-auth into the tenant org — i.e. today's behaviour.
+
 ## [0.6.5] - 2026-07-24
 ### Added
 - **Pause-on-limit backoff for the tenant ingest exporters.** A new
