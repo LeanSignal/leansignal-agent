@@ -149,6 +149,10 @@ data:
           insecure: true
         resource_to_telemetry_conversion:
           enabled: true
+        # Synthesized post-demand-filter and redundant under
+        # resource_to_telemetry_conversion — would land undemanded in the store.
+        target_info:
+          enabled: false
         retry_on_failure:
           enabled: true
       prometheusremotewrite/dataplane:
@@ -159,6 +163,8 @@ data:
           authenticator: leansignal_ingest_backoff/metrics
         resource_to_telemetry_conversion:
           enabled: true
+        target_info:
+          enabled: false
         retry_on_failure:
           enabled: true
         remote_write_queue:
