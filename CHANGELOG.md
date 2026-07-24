@@ -4,6 +4,21 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and this project follows
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.6.7] - 2026-07-24
+### Fixed
+- **The trace ingestion rule now travels in a header, not the push path.** 0.6.6
+  posted each rule's spans to `/v1/traces/r/<filter-id>`, which needs its own
+  Ingress with a rewrite — and control-center renames only the ingresses it knows
+  about when a pool tenant is allocated. On every allocated tenant that Ingress
+  kept the pool hostname while the agent pushed to the allocated one, so the
+  per-rule path fell through to the plain `/v1/traces` Prefix rule un-rewritten
+  and Tempo 404'd every batch: traces would have stopped reaching the tenant
+  store as soon as an allocated tenant upgraded. `leansignal_trace_router` now
+  posts to the plain `/v1/traces` with `X-Lean-Trace-Rule: <filter-id>`, which
+  rides the existing ingress — nothing new to route, nothing to rename. Requires
+  lean-api reading that header (it also still accepts the 0.6.6 path, so agents
+  can roll in any order).
+
 ## [0.6.6] - 2026-07-24
 ### Added
 - **One Tempo org per trace ingestion rule**, so deleting a rule actually purges

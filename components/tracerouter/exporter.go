@@ -25,10 +25,19 @@ import (
 //
 // leansignal_trace_demand_filter stamps every emitted ResourceSpans with the id
 // of the rule that demanded it (duplicating a resource matched by several
-// rules). This exporter groups by that stamp and pushes each group to
-// `<endpoint>/v1/traces/r/<filter-id>`; the tenant ingress forward-auths the
-// path and lean-api answers with `X-Scope-OrgID: <tenant>__<filter-id>`, so the
-// spans land in that rule's own Tempo org.
+// rules). This exporter groups by that stamp and pushes each group to the plain
+// `<endpoint>/v1/traces` carrying `X-Lean-Trace-Rule: <filter-id>`; the tenant
+// ingress forward-auths the request, lean-api reads that header and answers with
+// `X-Scope-OrgID: <tenant>__<filter-id>`, so the spans land in that rule's own
+// Tempo org.
+//
+// The rule travels in a HEADER, not the path, deliberately. A per-rule path
+// (/v1/traces/r/<id>) needs its own Ingress with a rewrite — and control-center
+// renames only the ingresses it knows about when a pool tenant is allocated, so
+// on every allocated tenant that Ingress kept the pool hostname while the agent
+// pushed to the allocated one. The per-rule path then fell through to the plain
+// /v1/traces Prefix rule un-rewritten and Tempo 404'd every batch. A header
+// rides the existing ingress unchanged, so there is nothing to rename.
 //
 // Why not the stock otlphttp exporter: its endpoint is fixed at config time,
 // and the set of orgs changes with the demand set. Only the push differs
@@ -37,6 +46,10 @@ import (
 // The stamp is stripped before sending — it is agent-internal routing, not
 // tenant data. Spans arriving without one (e.g. a server that predates per-rule
 // routing) go to `<endpoint>/v1/traces`, the tenant-wide org, unchanged.
+// RuleHeader carries the id of the ingestion rule a batch belongs to. lean-api's
+// forward-auth turns it into that rule's Tempo org.
+const RuleHeader = "X-Lean-Trace-Rule"
+
 type router struct {
 	logger *zap.Logger
 	cfg    *Config
@@ -112,7 +125,7 @@ func (r *router) push(ctx context.Context, filterID string, td ptrace.Traces) er
 		return fmt.Errorf("marshal: %w", err)
 	}
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, r.pathFor(filterID), bytes.NewReader(body))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, r.tracesURL(), bytes.NewReader(body))
 	if err != nil {
 		return err
 	}
@@ -123,6 +136,12 @@ func (r *router) push(ctx context.Context, filterID string, td ptrace.Traces) er
 		req.Header.Set(k, v)
 	}
 
+	// Empty for unstamped spans (older server): lean-api then answers with the
+	// tenant-wide org, exactly as before per-rule routing existed.
+	if filterID != "" {
+		req.Header.Set(RuleHeader, filterID)
+	}
+
 	resp, err := r.client.Do(req)
 	if err != nil {
 		return err
@@ -130,19 +149,14 @@ func (r *router) push(ctx context.Context, filterID string, td ptrace.Traces) er
 	defer resp.Body.Close()
 
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return fmt.Errorf("HTTP %d from %s", resp.StatusCode, r.pathFor(filterID))
+		return fmt.Errorf("HTTP %d from %s (rule %q)", resp.StatusCode, r.tracesURL(), filterID)
 	}
 
 	return nil
 }
 
-// pathFor returns the push URL for a rule — or the plain traces path when the
-// batch carries no rule stamp.
-func (r *router) pathFor(filterID string) string {
-	base := strings.TrimRight(r.cfg.Endpoint, "/")
-	if filterID == "" {
-		return base + "/v1/traces"
-	}
-
-	return base + "/v1/traces/r/" + filterID
+// tracesURL is the OTLP traces endpoint — the same for every rule; the rule
+// itself travels in RuleHeader.
+func (r *router) tracesURL() string {
+	return strings.TrimRight(r.cfg.Endpoint, "/") + "/v1/traces"
 }

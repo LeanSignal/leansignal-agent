@@ -33,12 +33,13 @@ func stamped(service, filterID string) ptrace.ResourceSpans {
 	return rs
 }
 
-// Each rule's spans must go to that rule's OWN path — that path is what the
-// ingress turns into a per-rule Tempo org, and the org is the only granularity
-// at which Tempo can later delete them.
+// Each rule's spans go in their own request, tagged with that rule — the tag is
+// what the ingress turns into a per-rule Tempo org, and the org is the only
+// granularity at which Tempo can later delete them.
 func TestPushTraces_OneRequestPerRule(t *testing.T) {
 	type got struct {
 		path  string
+		rule  string
 		spans int
 		attrs bool
 	}
@@ -61,7 +62,12 @@ func TestPushTraces_OneRequestPerRule(t *testing.T) {
 			}
 		}
 
-		seen = append(seen, got{path: req.URL.Path, spans: r.Traces().SpanCount(), attrs: hasStamp})
+		seen = append(seen, got{
+			path:  req.URL.Path,
+			rule:  req.Header.Get(RuleHeader),
+			spans: r.Traces().SpanCount(),
+			attrs: hasStamp,
+		})
 
 		if req.Header.Get("Authorization") != "Bearer k" {
 			t.Errorf("missing auth header: %v", req.Header)
@@ -91,11 +97,19 @@ func TestPushTraces_OneRequestPerRule(t *testing.T) {
 		t.Fatalf("made %d requests, want one per rule (2): %+v", len(seen), seen)
 	}
 
-	paths := []string{seen[0].path, seen[1].path}
-	sort.Strings(paths)
+	// The PATH is the same for every rule — a per-rule path would need its own
+	// Ingress, which control-center does not rename on allocation.
+	for _, s := range seen {
+		if s.path != "/v1/traces" {
+			t.Errorf("path = %q, want the plain /v1/traces", s.path)
+		}
+	}
 
-	if paths[0] != "/v1/traces/r/rule-a" || paths[1] != "/v1/traces/r/rule-b" {
-		t.Errorf("paths = %v, want per-rule paths", paths)
+	rules := []string{seen[0].rule, seen[1].rule}
+	sort.Strings(rules)
+
+	if rules[0] != "rule-a" || rules[1] != "rule-b" {
+		t.Errorf("rule headers = %v, want one request per rule", rules)
 	}
 
 	for _, s := range seen {
@@ -105,13 +119,15 @@ func TestPushTraces_OneRequestPerRule(t *testing.T) {
 	}
 }
 
-// Spans with no stamp (a server predating per-rule routing) keep going to the
-// tenant-wide path, so an agent upgrade alone never changes behaviour.
-func TestPushTraces_UnstampedGoesToTenantPath(t *testing.T) {
-	var paths []string
+// Spans with no stamp (a server predating per-rule routing) carry NO rule
+// header, so lean-api answers with the tenant-wide org — an agent upgrade alone
+// never changes behaviour.
+func TestPushTraces_UnstampedCarriesNoRuleHeader(t *testing.T) {
+	var paths, rules []string
 
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 		paths = append(paths, req.URL.Path)
+		rules = append(rules, req.Header.Get(RuleHeader))
 		w.WriteHeader(http.StatusOK)
 	}))
 	defer srv.Close()
@@ -128,6 +144,10 @@ func TestPushTraces_UnstampedGoesToTenantPath(t *testing.T) {
 
 	if len(paths) != 1 || paths[0] != "/v1/traces" {
 		t.Errorf("paths = %v, want [/v1/traces]", paths)
+	}
+
+	if rules[0] != "" {
+		t.Errorf("rule header = %q, want empty for unstamped spans", rules[0])
 	}
 }
 
