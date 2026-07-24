@@ -66,6 +66,12 @@ extensions:
     name: leansignal_ingest_backoff
 
 exporters:
+  # leansignal trace router - one Tempo org per trace ingestion rule. Pushes each
+  # rule's spans to /v1/traces/r/<filter-id> so deleting that rule can expire its
+  # org (Tempo cannot delete a subset of an org).
+  - gomod: github.com/leansignal/leansignal-agent v0.1.0
+    import: github.com/leansignal/leansignal-agent/components/tracerouter
+    name: leansignal_trace_router
   - gomod: go.opentelemetry.io/collector/exporter/debugexporter v0.141.0
   - gomod: go.opentelemetry.io/collector/exporter/nopexporter v0.141.0
   - gomod: go.opentelemetry.io/collector/exporter/otlpexporter v0.141.0

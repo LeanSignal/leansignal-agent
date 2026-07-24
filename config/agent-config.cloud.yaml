@@ -158,8 +158,8 @@ exporters:
       enabled: true
   # Tenant Tempo via the ingest host - only the demanded resources' spans. The
   # agent key is the bearer token the ingress forward-auth authenticates.
-  otlphttp/tempo_tenant:
-    traces_endpoint: "${leansignal:tempo}/v1/traces"
+  leansignal_trace_router:
+    endpoint: \"${leansignal:tempo}\"
     headers:
       Authorization: "Bearer ${env:LEANSIGNAL_AGENT_KEY}"
     auth:
@@ -200,7 +200,7 @@ service:
     traces/filtered:
       receivers: [forward/trace_demand_filter]
       processors: [leansignal_trace_demand_filter, batch]
-      exporters: [otlphttp/tempo_tenant]
+      exporters: [leansignal_trace_router]
   telemetry:
     # SELF-MONITORING. The collector's OWN telemetry — metrics, logs AND traces —
     # is pushed via OTLP to the agent's own loopback OTLP receiver (127.0.0.1:4317).

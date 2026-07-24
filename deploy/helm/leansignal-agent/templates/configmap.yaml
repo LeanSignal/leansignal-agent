@@ -189,18 +189,16 @@ data:
         traces_endpoint: {{ include "leansignal-agent.localTempoEndpoint" . | quote }}
         retry_on_failure:
           enabled: true
-      # TENANT Tempo - only the demanded resources' spans; the agent key is the
-      # bearer token.
-      otlphttp/tempo_tenant:
-        traces_endpoint: "${leansignal:tempo}/v1/traces"
+      # TENANT Tempo - only the demanded resources' spans, ONE ORG PER TRACE
+      # INGESTION RULE. The router pushes to /v1/traces/r/<filter-id>, which
+      # lean-api forward-auths into `X-Scope-OrgID: <tenant>__<filter-id>`, so a
+      # deleted rule can have exactly its spans expired — Tempo cannot delete a
+      # subset of an org. The agent key is the bearer, as on every ingest plane.
+      leansignal_trace_router:
+        endpoint: "${leansignal:tempo}"
         headers:
           Authorization: "Bearer ${env:LEANSIGNAL_AGENT_KEY}"
-        auth:
-          authenticator: leansignal_ingest_backoff/traces
-        retry_on_failure:
-          enabled: true
-        sending_queue:
-          enabled: true
+        timeout: 30s
     {{- end }}
     {{- else }}
       # Edge mode: forward everything to the central agent's OTLP gRPC receiver
@@ -262,7 +260,7 @@ data:
         traces/filtered:
           receivers: [forward/trace_demand_filter]
           processors: [leansignal_trace_demand_filter, batch]
-          exporters: [otlphttp/tempo_tenant]
+          exporters: [leansignal_trace_router]
     {{- end }}
     {{- else }}
           processors: [memory_limiter, resourcedetection, resource, batch]
