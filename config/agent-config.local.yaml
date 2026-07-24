@@ -42,6 +42,14 @@ extensions:
     # UI edit-mode TRACE queries tunnel here (QueryRequest target QUERY_TARGET_TEMPO).
     local_tempo_query_url: "${env:LEANSIGNAL_LOCAL_TEMPO}"
 
+  # Pause-on-limit valves for the tenant ingest exporters (wired via their
+  # `auth` slots): a 403 (ingest limit exceeded) pauses that signal's pushes
+  # locally, one probe per retry_interval (default 1m). Inert against the local
+  # dev backends (they never 403); kept here so local config mirrors prod.
+  leansignal_ingest_backoff/metrics:
+  leansignal_ingest_backoff/logs:
+  leansignal_ingest_backoff/traces:
+
 receivers:
   otlp:
     protocols:
@@ -113,6 +121,8 @@ exporters:
   # by default in dev; override LEANSIGNAL_DATAPLANE_ENDPOINT to separate them).
   prometheusremotewrite/dataplane:
     endpoint: "${env:LEANSIGNAL_DATAPLANE_ENDPOINT}/api/v1/write"
+    auth:
+      authenticator: leansignal_ingest_backoff/metrics
     tls:
       insecure: true
     resource_to_telemetry_conversion:
@@ -126,6 +136,8 @@ exporters:
     logs_endpoint: "${env:LEANSIGNAL_LOKI_ENDPOINT}/otlp/v1/logs"
     headers:
       Authorization: "Bearer ${env:LEANSIGNAL_AGENT_KEY}"
+    auth:
+      authenticator: leansignal_ingest_backoff/logs
     retry_on_failure:
       enabled: true
     sending_queue:
@@ -143,6 +155,8 @@ exporters:
     traces_endpoint: "${env:LEANSIGNAL_TEMPO_ENDPOINT}/v1/traces"
     headers:
       Authorization: "Bearer ${env:LEANSIGNAL_AGENT_KEY}"
+    auth:
+      authenticator: leansignal_ingest_backoff/traces
     retry_on_failure:
       enabled: true
     sending_queue:
@@ -154,7 +168,7 @@ connectors:
   forward/trace_demand_filter: {}
 
 service:
-  extensions: [health_check, leansignal_edge_controller]
+  extensions: [health_check, leansignal_edge_controller, leansignal_ingest_backoff/metrics, leansignal_ingest_backoff/logs, leansignal_ingest_backoff/traces]
   pipelines:
     metrics/all:
       receivers: [otlp, hostmetrics]

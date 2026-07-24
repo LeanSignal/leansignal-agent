@@ -14,6 +14,13 @@ extensions:
     local_loki_query_url: "http://loki:3100"           # UI edit-mode LOG queries tunnel here
     local_tempo_query_url: "http://tempo:3200"         # UI edit-mode TRACE queries tunnel here
 
+  # Pause-on-limit valves for the tenant ingest exporters (wired via their
+  # `auth` slots): a 403 from the ingest edge (ingest limit exceeded) pauses
+  # that signal's pushes locally, one probe per retry_interval (default 1m).
+  leansignal_ingest_backoff/metrics:
+  leansignal_ingest_backoff/logs:
+  leansignal_ingest_backoff/traces:
+
 receivers:
   otlp:
     protocols:
@@ -69,6 +76,8 @@ exporters:
       enabled: true
   prometheusremotewrite/dataplane:
     endpoint: "${env:LEANSIGNAL_DATAPLANE_ENDPOINT}"
+    auth:
+      authenticator: leansignal_ingest_backoff/metrics
     resource_to_telemetry_conversion:
       enabled: true
   # Local Loki (compose service) - receives every log stream.
@@ -79,6 +88,8 @@ exporters:
     logs_endpoint: "${env:LEANSIGNAL_LOKI_ENDPOINT}/otlp/v1/logs"
     headers:
       Authorization: "Bearer ${env:LEANSIGNAL_AGENT_KEY}"
+    auth:
+      authenticator: leansignal_ingest_backoff/logs
     retry_on_failure:
       enabled: true
     sending_queue:
@@ -95,6 +106,8 @@ exporters:
     traces_endpoint: "${env:LEANSIGNAL_TEMPO_ENDPOINT}/v1/traces"
     headers:
       Authorization: "Bearer ${env:LEANSIGNAL_AGENT_KEY}"
+    auth:
+      authenticator: leansignal_ingest_backoff/traces
     retry_on_failure:
       enabled: true
     sending_queue:
@@ -106,7 +119,7 @@ connectors:
   forward/trace_demand_filter: {}
 
 service:
-  extensions: [health_check, leansignal_edge_controller]
+  extensions: [health_check, leansignal_edge_controller, leansignal_ingest_backoff/metrics, leansignal_ingest_backoff/logs, leansignal_ingest_backoff/traces]
   pipelines:
     metrics/all:
       receivers: [otlp]

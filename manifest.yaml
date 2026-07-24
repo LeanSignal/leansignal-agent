@@ -58,6 +58,13 @@ extensions:
     import: github.com/leansignal/leansignal-agent/components/edgecontroller
     name: leansignal_controller
 
+  # leansignal ingest backoff - auth-slot valve on the tenant ingest exporters:
+  # pauses pushes while the ingest edge answers 403 (ingest limit), probing
+  # once per retry_interval
+  - gomod: github.com/leansignal/leansignal-agent v0.1.0
+    import: github.com/leansignal/leansignal-agent/components/ingestbackoff
+    name: leansignal_ingest_backoff
+
 exporters:
   - gomod: go.opentelemetry.io/collector/exporter/debugexporter v0.141.0
   - gomod: go.opentelemetry.io/collector/exporter/nopexporter v0.141.0
