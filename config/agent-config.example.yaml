@@ -72,6 +72,18 @@ extensions:
     # DemandTimeseriesCache.yaml). Defaults to /tmp/leansignal-agent.
     # diagnostics_dir: /tmp/leansignal-agent
 
+  # Pause-on-limit valves for the tenant ingest exporters (wired via each
+  # exporter's `auth` slot below). When the ingest edge rejects a push with 403
+  # — LeanSignal's "ingest limit exceeded" answer (storage ceiling or monthly
+  # ingest budget) — the signal's pushes are suppressed locally (no network
+  # traffic, batches dropped as permanent errors) and ONE probe goes out per
+  # retry_interval (default 1m); the probe succeeding resumes pushing. One
+  # instance per signal so one signal's limit never pauses another. Local
+  # fidelity is unaffected — the co-located stores keep receiving everything.
+  leansignal_ingest_backoff/metrics:
+  leansignal_ingest_backoff/logs:
+  leansignal_ingest_backoff/traces:
+
 receivers:
   # Accept OTLP from local applications / SDKs, AND from edge agents forwarding to
   # this central agent. Bound to 0.0.0.0 (all interfaces) and unauthenticated by
@@ -198,6 +210,10 @@ exporters:
     endpoint: "${leansignal:dataplane}/api/v1/write"
     headers:
       Authorization: "Bearer ${env:LEANSIGNAL_AGENT_KEY}"
+    # Pause-on-limit valve (see the extension above); purely a transport
+    # wrapper — the Authorization header above is untouched.
+    auth:
+      authenticator: leansignal_ingest_backoff/metrics
     resource_to_telemetry_conversion:
       enabled: true
     retry_on_failure:
@@ -218,6 +234,8 @@ exporters:
     logs_endpoint: "${leansignal:loki}/otlp/v1/logs"
     headers:
       Authorization: "Bearer ${env:LEANSIGNAL_AGENT_KEY}"
+    auth:
+      authenticator: leansignal_ingest_backoff/logs
     retry_on_failure:
       enabled: true
     sending_queue:
@@ -236,6 +254,8 @@ exporters:
     traces_endpoint: "${leansignal:tempo}/v1/traces"
     headers:
       Authorization: "Bearer ${env:LEANSIGNAL_AGENT_KEY}"
+    auth:
+      authenticator: leansignal_ingest_backoff/traces
     retry_on_failure:
       enabled: true
     sending_queue:
@@ -255,7 +275,7 @@ connectors:
   forward/trace_demand_filter: {}
 
 service:
-  extensions: [health_check, leansignal_edge_controller]
+  extensions: [health_check, leansignal_edge_controller, leansignal_ingest_backoff/metrics, leansignal_ingest_backoff/logs, leansignal_ingest_backoff/traces]
   pipelines:
     # Everything: tracked, written to the local VM in full, and forwarded on.
     # (The collector's own metrics arrive here via OTLP too — see service.telemetry.)
