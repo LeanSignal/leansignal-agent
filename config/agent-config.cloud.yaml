@@ -124,6 +124,10 @@ exporters:
       insecure: true
     resource_to_telemetry_conversion:
       enabled: true
+    # Synthesized post-demand-filter and redundant under
+    # resource_to_telemetry_conversion — would land undemanded in the store.
+    target_info:
+      enabled: false
   # Central dataplane via the tenant's vmauth ingest - only the demanded subset.
   # The agent key is the bearer token vmauth authenticates.
   prometheusremotewrite/dataplane:
@@ -134,6 +138,8 @@ exporters:
       authenticator: leansignal_ingest_backoff/metrics
     resource_to_telemetry_conversion:
       enabled: true
+    target_info:
+      enabled: false
   # This host's local Loki - receives every log stream (base URL + OTLP logs
   # path built here).
   otlphttp/loki_local:

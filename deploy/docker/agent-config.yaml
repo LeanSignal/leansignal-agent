@@ -74,12 +74,18 @@ exporters:
       insecure: true
     resource_to_telemetry_conversion:
       enabled: true
+    # Synthesized post-demand-filter and redundant under
+    # resource_to_telemetry_conversion — would land undemanded in the store.
+    target_info:
+      enabled: false
   prometheusremotewrite/dataplane:
     endpoint: "${env:LEANSIGNAL_DATAPLANE_ENDPOINT}"
     auth:
       authenticator: leansignal_ingest_backoff/metrics
     resource_to_telemetry_conversion:
       enabled: true
+    target_info:
+      enabled: false
   # Local Loki (compose service) - receives every log stream.
   otlphttp/loki_local:
     logs_endpoint: http://loki:3100/otlp/v1/logs

@@ -117,6 +117,10 @@ exporters:
       insecure: true
     resource_to_telemetry_conversion:
       enabled: true
+    # Synthesized post-demand-filter and redundant under
+    # resource_to_telemetry_conversion — would land undemanded in the store.
+    target_info:
+      enabled: false
   # Dataplane - receives only the demanded subset (points at the same local VM
   # by default in dev; override LEANSIGNAL_DATAPLANE_ENDPOINT to separate them).
   prometheusremotewrite/dataplane:
@@ -127,6 +131,8 @@ exporters:
       insecure: true
     resource_to_telemetry_conversion:
       enabled: true
+    target_info:
+      enabled: false
   # Local Loki - receives every log stream (base URL + OTLP logs path built here).
   otlphttp/loki_local:
     logs_endpoint: "${env:LEANSIGNAL_LOCAL_LOKI}/otlp/v1/logs"

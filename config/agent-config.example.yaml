@@ -201,6 +201,12 @@ exporters:
       insecure: true
     resource_to_telemetry_conversion:
       enabled: true
+    # target_info is synthesized by the exporter itself, so the demand filter
+    # never sees it — and resource_to_telemetry_conversion already stamps every
+    # resource attribute onto every series, making it pure redundancy. On the
+    # dataplane it would land as a permanently-undemanded stray.
+    target_info:
+      enabled: false
     retry_on_failure:
       enabled: true
 
@@ -216,6 +222,10 @@ exporters:
       authenticator: leansignal_ingest_backoff/metrics
     resource_to_telemetry_conversion:
       enabled: true
+    # See prometheusremotewrite/local — synthesized post-filter, redundant,
+    # and undemanded in the central store.
+    target_info:
+      enabled: false
     retry_on_failure:
       enabled: true
     remote_write_queue:
