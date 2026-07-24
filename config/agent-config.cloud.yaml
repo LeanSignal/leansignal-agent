@@ -48,6 +48,15 @@ extensions:
     # Point at a mounted volume if you want them to survive a pod restart.
     # diagnostics_dir: /var/lib/leansignal/diagnostics
 
+  # Pause-on-limit valves for the tenant ingest exporters (wired via their
+  # `auth` slots): a 403 from the ingest edge (storage limit or monthly ingest
+  # budget exceeded) pauses that signal's pushes locally — no network traffic —
+  # with ONE probe per retry_interval (default 1m); a probe success resumes.
+  # One instance per signal so one signal's limit never pauses another.
+  leansignal_ingest_backoff/metrics:
+  leansignal_ingest_backoff/logs:
+  leansignal_ingest_backoff/traces:
+
 receivers:
   otlp:
     protocols:
@@ -121,6 +130,8 @@ exporters:
     endpoint: "${leansignal:dataplane}/api/v1/write"
     headers:
       Authorization: "Bearer ${env:LEANSIGNAL_AGENT_KEY}"
+    auth:
+      authenticator: leansignal_ingest_backoff/metrics
     resource_to_telemetry_conversion:
       enabled: true
   # This host's local Loki - receives every log stream (base URL + OTLP logs
@@ -133,6 +144,8 @@ exporters:
     logs_endpoint: "${leansignal:loki}/otlp/v1/logs"
     headers:
       Authorization: "Bearer ${env:LEANSIGNAL_AGENT_KEY}"
+    auth:
+      authenticator: leansignal_ingest_backoff/logs
     retry_on_failure:
       enabled: true
     sending_queue:
@@ -149,6 +162,8 @@ exporters:
     traces_endpoint: "${leansignal:tempo}/v1/traces"
     headers:
       Authorization: "Bearer ${env:LEANSIGNAL_AGENT_KEY}"
+    auth:
+      authenticator: leansignal_ingest_backoff/traces
     retry_on_failure:
       enabled: true
     sending_queue:
@@ -160,7 +175,7 @@ connectors:
   forward/trace_demand_filter: {}
 
 service:
-  extensions: [health_check, leansignal_edge_controller]
+  extensions: [health_check, leansignal_edge_controller, leansignal_ingest_backoff/metrics, leansignal_ingest_backoff/logs, leansignal_ingest_backoff/traces]
   pipelines:
     metrics/all:
       receivers: [otlp, hostmetrics]

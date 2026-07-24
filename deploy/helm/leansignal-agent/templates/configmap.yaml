@@ -27,6 +27,17 @@ data:
     {{- if $traces }}
         local_tempo_query_url: {{ include "leansignal-agent.localTempoQueryEndpoint" . | quote }}
     {{- end }}
+      # Pause-on-limit valves for the tenant ingest exporters (wired via their
+      # `auth` slots): a 403 from the ingest edge (storage limit or monthly
+      # ingest budget exceeded) pauses that signal's pushes locally, one probe
+      # per retry_interval (default 1m). One instance per signal.
+      leansignal_ingest_backoff/metrics:
+    {{- if $logs }}
+      leansignal_ingest_backoff/logs:
+    {{- end }}
+    {{- if $traces }}
+      leansignal_ingest_backoff/traces:
+    {{- end }}
     {{- end }}
 
     receivers:
@@ -144,6 +155,8 @@ data:
         endpoint: "${leansignal:dataplane}/api/v1/write"
         headers:
           Authorization: "Bearer ${env:LEANSIGNAL_AGENT_KEY}"
+        auth:
+          authenticator: leansignal_ingest_backoff/metrics
         resource_to_telemetry_conversion:
           enabled: true
         retry_on_failure:
@@ -163,6 +176,8 @@ data:
         logs_endpoint: "${leansignal:loki}/otlp/v1/logs"
         headers:
           Authorization: "Bearer ${env:LEANSIGNAL_AGENT_KEY}"
+        auth:
+          authenticator: leansignal_ingest_backoff/logs
         retry_on_failure:
           enabled: true
         sending_queue:
@@ -180,6 +195,8 @@ data:
         traces_endpoint: "${leansignal:tempo}/v1/traces"
         headers:
           Authorization: "Bearer ${env:LEANSIGNAL_AGENT_KEY}"
+        auth:
+          authenticator: leansignal_ingest_backoff/traces
         retry_on_failure:
           enabled: true
         sending_queue:
@@ -209,7 +226,7 @@ data:
 
     service:
     {{- if eq $mode "central" }}
-      extensions: [health_check, leansignal_edge_controller]
+      extensions: [health_check, leansignal_edge_controller, leansignal_ingest_backoff/metrics{{ if $logs }}, leansignal_ingest_backoff/logs{{ end }}{{ if $traces }}, leansignal_ingest_backoff/traces{{ end }}]
     {{- else }}
       extensions: [health_check]
     {{- end }}
