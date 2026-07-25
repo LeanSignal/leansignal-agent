@@ -27,11 +27,10 @@ import (
 
 func TestNewCollectorTimeseries(t *testing.T) {
 	logger := zaptest.NewLogger(t)
+	// NewCollectorTimeseries always returns a value, so there is nothing to
+	// nil-check here — only the initialized state is worth asserting.
 	ct := NewCollectorTimeseries(logger)
 
-	if ct == nil {
-		t.Fatal("expected non-nil CollectorTimeseries")
-	}
 	if ct.data == nil {
 		t.Fatal("expected non-nil data map")
 	}

@@ -19,10 +19,10 @@ directory outside the binaries**:
 | Loki | logs | `/var/lib/leansignal-agent/loki` | ~1h window |
 | Tempo | traces | `/var/lib/leansignal-agent/tempo` | ~1h window |
 
-**Loki and Tempo are Linux-only** for now. On **macOS** and **Windows** only
-VictoriaMetrics is co-located (data at `/usr/local/var/leansignal-agent/vm` and
-`%ProgramData%\LeanSignal\Agent\vm` respectively); on **Kubernetes** it is the
-`victoria-metrics-single` PVC.
+Paths above are the Linux ones. **macOS** installs all three stores too, under
+`/usr/local/var/leansignal-agent/{vm,loki,tempo}`. On **Windows** only
+VictoriaMetrics is co-located (`%ProgramData%\LeanSignal\Agent\vm`); on
+**Kubernetes** metrics use the `victoria-metrics-single` PVC.
 
 Because of this, **upgrading the agent never stops the co-located stores or
 touches their data** — that's the default and the common case (e.g. `v0.1.0` →

@@ -1,5 +1,11 @@
 # Tempo config for the LeanSignal Agent's co-located local trace store.
-# Installed to /etc/leansignal-agent/tempo.yaml by scripts/install/install.sh.
+# Installed by scripts/install/install.sh to the platform's config dir
+# (/etc/leansignal-agent/tempo.yaml on Linux,
+# /usr/local/etc/leansignal-agent/tempo.yaml on macOS).
+#
+# The data-directory placeholder below is substituted by the installer with the
+# platform data dir: /var/lib/leansignal-agent on Linux,
+# /usr/local/var/leansignal-agent on macOS.
 #
 # Single binary (monolithic), local filesystem storage, loopback-only — the
 # traces twin of the co-located VictoriaMetrics/Loki. It holds a short (~1h)
@@ -24,9 +30,9 @@ storage:
   trace:
     backend: local
     local:
-      path: /var/lib/leansignal-agent/tempo/blocks
+      path: __DATA_DIR__/tempo/blocks
     wal:
-      path: /var/lib/leansignal-agent/tempo/wal
+      path: __DATA_DIR__/tempo/wal
 
 # The "~1h window" is APPROXIMATE by design: Tempo has no query-lookback bound
 # (unlike the local Loki's max_query_lookback), deletion is compaction-driven

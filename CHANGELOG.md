@@ -4,6 +4,64 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and this project follows
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.7.0] - 2026-07-25
+### Added
+- **The co-located log and trace stores now install on macOS.** Loki and Tempo
+  were Linux-only — `install.sh` detected darwin and skipped them, because there
+  was no launchd plist for either — so a Mac kept metrics locally but had nowhere
+  to put logs or spans. Demanded logs and traces still reached the tenant (the
+  collector config is identical on every platform, tenant exporters included);
+  what was missing was the **local** full-fidelity window, and with it the ability
+  to explore a signal before demanding it. All three stores now install on both
+  platforms:
+  - New launchd daemons `com.leansignal.loki` and `com.leansignal.tempo` beside
+    the existing `com.leansignal.victoria-metrics`, each independent of the agent
+    and of each other. Binaries in `/usr/local/bin/`, configs in
+    `/usr/local/etc/leansignal-agent/{loki,tempo}.yaml`, data under
+    `/usr/local/var/leansignal-agent/{loki,tempo}`, logs at
+    `/usr/local/var/log/leansignal-agent/{loki,tempo}.log`.
+  - Grafana publishes darwin builds of both, so the pinned `LOKI_VERSION` /
+    `TEMPO_VERSION` are used unchanged; the download URL, archive member and
+    service-template names are now derived from the detected platform instead of
+    being hardcoded to `linux`.
+  - `--no-loki` / `--no-tempo` now do something on macOS, and `uninstall.sh`
+    removes the two new daemons.
+  The local windows match Linux: Loki ~1h (exact, `max_query_lookback`), Tempo
+  ~1h (approximate, compaction-driven). Nothing about the agent or its config
+  changes — it has always been writing to `127.0.0.1:3100` and `127.0.0.1:4328`;
+  on macOS there was simply nothing listening. **Windows is unchanged** — still
+  metrics-only locally, with logs and traces received and forwarded but not
+  stored.
+
+### Changed
+- `loki.yaml` and `tempo.yaml` now carry a data-directory placeholder that the
+  installer substitutes with the platform path, so one template serves both
+  platforms. **Every non-comment line of the rendered Linux config is identical
+  to 0.6.7's** — no behaviour change on Linux.
+- `docs/install-macos.md` documents macOS as a full-feature platform and gains a
+  verification section covering all three signals (including why `allowed=0` in
+  the demand-filter log lines is correct on a fresh agent, and why Tempo's
+  `/api/search/tags` is empty until its first blocks flush).
+- Every install guide now documents, per service, how to **read its logs**,
+  **edit its config** and **restart just it**. Windows gains the log story it
+  never had: `sc.exe` does not capture the collector's stderr, so there is no log
+  file — the guide now covers the Event Log, running the binary in the foreground
+  with the service's environment loaded, and reading the agent's own logs in
+  LeanSignal once `{service_name="leansignal-agent"}` is demanded.
+
+### Fixed
+- **`docs/install-kubernetes.md` claimed the chart bundles no Loki or Tempo.** It
+  has for some time: `localLoki.deploy` and `localTempo.deploy` both default to
+  `true`, so central-mode installs get a Loki and a Tempo Deployment alongside the
+  collector. The guide told users to go run their own and, in the "what gets
+  created" list, to expect neither.
+- **Every `kubectl` command in that guide named the wrong resource.** The chart's
+  `fullname` helper always prefixes the release name rather than deduping it, so
+  the documented install produces `leansignal-agent-leansignal-agent…`, not
+  `leansignal-agent…`. Each `kubectl logs` / `rollout restart` / `get cm` as
+  written failed with `NotFound`, and the advertised in-cluster OTLP address
+  (`leansignal-agent.leansignal.svc:4317`) resolved to nothing.
+
 ## [0.6.8] - 2026-07-24
 ### Fixed
 - **`leansignal_trace_router` drops 4xx-rejected pushes instead of retrying

@@ -20,7 +20,7 @@ if [ "$os" = linux ]; then
   systemctl daemon-reload 2>/dev/null || true
 else
   CONF_DIR=/usr/local/etc/leansignal-agent; DATA_DIR=/usr/local/var/leansignal-agent
-  for lbl in com.leansignal.agent com.leansignal.victoria-metrics; do
+  for lbl in com.leansignal.agent com.leansignal.victoria-metrics com.leansignal.loki com.leansignal.tempo; do
     launchctl unload "/Library/LaunchDaemons/${lbl}.plist" 2>/dev/null || true
     rm -f "/Library/LaunchDaemons/${lbl}.plist"
   done

@@ -1,10 +1,13 @@
 # Install on Kubernetes
 
 The agent ships as a Helm chart that deploys the collector and collects
-**telemetry** — metrics, logs, and traces. The chart bundles a co-located
-**metrics** store (the upstream `victoria-metrics-single` subchart, optional);
-there is **no bundled Loki or Tempo** — for logs and traces you point the agent
-at a Loki/Tempo you run (see [Logs & traces](#logs--traces) below).
+**telemetry** — metrics, logs, and traces. It bundles a co-located store for each
+signal: **VictoriaMetrics** for metrics (the upstream `victoria-metrics-single`
+subchart, enable with `--set victoria-metrics-single.enabled=true`), plus
+**Loki** and **Tempo** Deployments for logs and traces, both on by default in
+central mode. Any of them can be swapped for a store you already run — see
+[Logs & traces](#logs--traces) and
+[Bring your own VictoriaMetrics](#bring-your-own-victoriametrics).
 
 ## Install
 
@@ -108,22 +111,22 @@ can read this store over the gRPC tunnel — it does not need to be exposed.
 ## Logs & traces
 
 The chart's logs and traces pipelines are **enabled by default** (`logs.enabled`
-/ `traces.enabled`), but — unlike metrics — the chart bundles **no** Loki or
-Tempo. The agent writes every log stream / span to a *local* store and forwards
-only the demanded subset to the tenant store, so on Kubernetes you point the
-local endpoints at a Loki/Tempo **you run** (or the tenant provides):
+/ `traces.enabled`), and so are the local stores that back them: `localLoki.deploy`
+and `localTempo.deploy` both default to **true**, so a bundled Loki and Tempo
+(ClusterIP, ~1h window each) are deployed alongside the collector in central mode.
+The agent writes every log stream / span to the local store and forwards only the
+demanded subset to the tenant store — the same pattern as metrics.
+
+**To bring your own** Loki/Tempo, set its `writeEndpoint`; that alone disables the
+bundled store (you are pointing the agent elsewhere):
 
 ```yaml
-logs:
-  enabled: true
 localLoki:
   # OTLP logs push endpoint (…/otlp/v1/logs) of a Loki you run.
   writeEndpoint: http://loki.monitoring.svc:3100/otlp/v1/logs
   # queryEndpoint is derived from writeEndpoint (…/otlp/v1/logs trimmed); set it
   # explicitly only if your query API is elsewhere.
 
-traces:
-  enabled: true
 localTempo:
   # OTLP traces push endpoint (…/v1/traces) of a Tempo you run.
   writeEndpoint: http://tempo.monitoring.svc:4318/v1/traces
@@ -131,15 +134,33 @@ localTempo:
   queryEndpoint: http://tempo.monitoring.svc:3200
 ```
 
-The **tenant** logs/traces ingest hosts are derived from the tenant just like the
-metrics dataplane — `https://<tenant>-ingest.<domain>` (override with
-`logs.tenantEndpoint` / `traces.tenantEndpoint`); the exporters append
-`/otlp/v1/logs` and `/v1/traces`. As with metrics, LeanSignal can read the local
-stores over the gRPC tunnel via their `queryEndpoint`.
+**To store nothing locally**, set `localLoki.deploy=false` / `localTempo.deploy=false`
+without a `writeEndpoint`. Telemetry still reaches your tenant, but there is no
+local buffer and nothing to explore before demanding — and the agent will log
+connection-refused errors against the unused in-pod endpoints. To switch a signal
+off entirely instead, use `--set logs.enabled=false` / `--set traces.enabled=false`.
 
-If you don't run a local Loki/Tempo, disable those pipelines with
-`--set logs.enabled=false --set traces.enabled=false` rather than leaving them
-pointed at the default in-pod `localhost` endpoints, where nothing is listening.
+**Storage.** Both bundled stores use an `emptyDir` by default, so a pod restart
+drops the local window — acceptable for a ~1h buffer, and it never affects what
+LeanSignal already holds. Give either one a PVC if you'd rather it survive:
+
+```yaml
+localLoki:
+  persistence: { enabled: true, size: 5Gi, storageClassName: "" }
+localTempo:
+  persistence: { enabled: true, size: 5Gi, storageClassName: "" }
+```
+
+The windows match the host installs: Loki `max_query_lookback: 1h` (exact), Tempo
+`block_retention: 1h` (approximate). In-cluster Tempo takes OTLP on **4318** — the
+host installs use 4328 only because the collector owns 4317/4318 there, which is
+not a conflict in a separate pod.
+
+The **tenant** logs/traces ingest hosts are derived from the tenant slug just like
+the metrics dataplane (override with `logs.tenantEndpoint` /
+`traces.tenantEndpoint`); the exporters append `/otlp/v1/logs` and `/v1/traces`.
+As with metrics, LeanSignal reads the local stores over the gRPC tunnel via their
+`queryEndpoint`.
 
 The chart also exposes the agent's **Loki push receiver** (promtail/alloy-style
 shippers) on the OTLP Service — ports **3500** (HTTP) / **3600** (gRPC) — whenever
@@ -147,13 +168,24 @@ shippers) on the OTLP Service — ports **3500** (HTTP) / **3600** (gRPC) — wh
 
 ## What gets created
 
-A Deployment (collector), ConfigMap (rendered config), ServiceAccount, a
-ClusterRole/Binding for the `k8s_cluster` + `kubeletstats` receivers, a Secret
-(unless you supply one), an OTLP Service (with the Loki push receiver ports
-**3500**/**3600** added when logs are enabled), and — when enabled — the bundled
-VictoriaMetrics StatefulSet/Service. The rendered config carries the metrics,
-logs, and traces pipelines (logs/traces in central mode when enabled). **No Loki
-or Tempo is created** — those are stores you run and point the agent at.
+Every name below is `<release>-leansignal-agent…` — this chart's fullname helper
+always prefixes the release name, so the documented install (release
+`leansignal-agent`) yields the doubled `leansignal-agent-leansignal-agent`.
+
+| Resource | Name (release `leansignal-agent`) |
+|---|---|
+| Deployment + ConfigMap + Service (collector) | `leansignal-agent-leansignal-agent` |
+| Deployment + ConfigMap + Service (local Loki) | `leansignal-agent-leansignal-agent-loki` |
+| Deployment + ConfigMap + Service (local Tempo) | `leansignal-agent-leansignal-agent-tempo` |
+| StatefulSet + Service (local VictoriaMetrics) | `leansignal-agent-victoria-metrics-single-server` |
+
+Plus a ServiceAccount, a ClusterRole/Binding for the `k8s_cluster` +
+`kubeletstats` receivers, and a Secret (unless you supply one). The OTLP Service
+carries the Loki push receiver ports **3500**/**3600** when logs are enabled. The
+rendered config carries the metrics, logs and traces pipelines (logs/traces in
+central mode). The Loki, Tempo and VictoriaMetrics resources appear only while
+their store is enabled — see [Logs & traces](#logs--traces) and
+[Bring your own VictoriaMetrics](#bring-your-own-victoriametrics).
 
 ## It's already collecting
 
@@ -162,8 +194,8 @@ collected automatically** and written to the co-located VictoriaMetrics — noth
 else to configure. Verify:
 
 ```bash
-kubectl -n leansignal rollout status deploy/leansignal-agent
-kubectl -n leansignal logs deploy/leansignal-agent -f     # connection + index sync counts
+kubectl -n leansignal rollout status deploy/leansignal-agent-leansignal-agent
+kubectl -n leansignal logs deploy/leansignal-agent-leansignal-agent -f     # connection + index sync counts
 
 # query the local store via a port-forward
 kubectl -n leansignal port-forward svc/leansignal-agent-victoria-metrics-single-server 8428:8428 &
@@ -172,8 +204,60 @@ curl -s http://127.0.0.1:8428/api/v1/label/__name__/values
 
 Send your own app telemetry (metrics, and — once you've wired up a local
 Loki/Tempo above — logs and traces) to the in-cluster OTLP service
-`leansignal-agent.leansignal.svc:4317` (gRPC) / `:4318` (HTTP); log shippers can
+`leansignal-agent-leansignal-agent.leansignal.svc:4317` (gRPC) / `:4318` (HTTP); log shippers can
 push to the Loki receiver on `:3500` (HTTP) / `:3600` (gRPC).
+
+## Manage
+
+Names below assume the documented release name `leansignal-agent` — see
+[What gets created](#what-gets-created) for why they are doubled.
+
+```bash
+# STATUS — everything the chart owns
+kubectl -n leansignal get pods,deploy,sts,svc,cm
+
+# LIVE LOGS (per component)
+kubectl -n leansignal logs deploy/leansignal-agent-leansignal-agent -f        # collector
+kubectl -n leansignal logs deploy/leansignal-agent-leansignal-agent-loki -f   # local log store
+kubectl -n leansignal logs deploy/leansignal-agent-leansignal-agent-tempo -f  # local trace store
+kubectl -n leansignal logs sts/leansignal-agent-victoria-metrics-single-server -f
+kubectl -n leansignal logs deploy/leansignal-agent-leansignal-agent -f --previous   # after a crash
+
+# RESTART (rolling; PVCs and store data are retained)
+kubectl -n leansignal rollout restart deploy/leansignal-agent-leansignal-agent
+kubectl -n leansignal rollout status  deploy/leansignal-agent-leansignal-agent
+kubectl -n leansignal rollout restart deploy/leansignal-agent-leansignal-agent-loki
+kubectl -n leansignal rollout restart deploy/leansignal-agent-leansignal-agent-tempo
+kubectl -n leansignal rollout restart sts/leansignal-agent-victoria-metrics-single-server
+
+# REACH A LOCAL STORE from your machine
+kubectl -n leansignal port-forward svc/leansignal-agent-victoria-metrics-single-server 8428:8428
+kubectl -n leansignal port-forward svc/leansignal-agent-leansignal-agent-loki 3100:3100
+kubectl -n leansignal port-forward svc/leansignal-agent-leansignal-agent-tempo 3200:3200
+kubectl -n leansignal port-forward deploy/leansignal-agent-leansignal-agent 13133:13133   # agent health
+```
+
+> **Keep `replicaCount: 1`.** The edge controller and metrics tracker assume one
+> process per agent — scaling the Deployment breaks index sync.
+
+### Configuration
+
+Configuration is **Helm values**, not files edited in place — the collector config
+is a rendered ConfigMap, so hand-editing it is undone by the next `helm upgrade`
+unless you own it out-of-band via `config.existingConfigMap`
+(see [Config persistence](#config-persistence--owning-the-config)).
+
+```bash
+# see the rendered collector config
+kubectl -n leansignal get cm leansignal-agent-leansignal-agent -o jsonpath='{.data.config\.yaml}'
+
+# change a value and roll it out
+helm upgrade leansignal-agent oci://ghcr.io/leansignal/charts/leansignal-agent \
+  --namespace leansignal --reuse-values --set <key>=<value>
+```
+
+A `helm upgrade` that changes the ConfigMap restarts the pod automatically; if you
+rotate an external Secret instead, restart it yourself with `rollout restart`.
 
 ## Change the agent key or tenant
 
@@ -187,7 +271,7 @@ helm upgrade leansignal-agent oci://ghcr.io/leansignal/charts/leansignal-agent \
 ```
 If you supply the key via an existing Secret (see "Using an existing Secret" above),
 rotate that Secret instead and restart:
-`kubectl -n leansignal rollout restart deploy/leansignal-agent`.
+`kubectl -n leansignal rollout restart deploy/leansignal-agent-leansignal-agent`.
 
 ## Upgrading
 

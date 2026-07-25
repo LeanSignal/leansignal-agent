@@ -18,9 +18,10 @@
 package leansignaledgecontroller
 
 import (
-	"github.com/leansignal/leansignal-agent/components/tracedemand"
 	"sync"
 	"time"
+
+	"github.com/leansignal/leansignal-agent/components/tracedemand"
 
 	"go.uber.org/zap"
 )

@@ -153,10 +153,9 @@ func newTestProc(provider DemandProvider) (*demandFilterProcessor, *mockConsumer
 
 func TestNewDemandFilterProcessor_Defaults(t *testing.T) {
 	mc := &mockConsumer{}
+	// newDemandFilterProcessor always returns a value, so there is nothing to
+	// nil-check here — only the zero state is worth asserting.
 	p := newDemandFilterProcessor(zap.NewNop(), mc, &Config{})
-	if p == nil {
-		t.Fatal("expected non-nil processor")
-	}
 	if p.provider != nil {
 		t.Error("provider should be nil before Start is called")
 	}
