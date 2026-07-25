@@ -4,6 +4,20 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and this project follows
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.6.8] - 2026-07-24
+### Fixed
+- **`leansignal_trace_router` drops 4xx-rejected pushes instead of retrying
+  them.** lean-api answers 403 to a push naming a deleted rule (deliberately —
+  routing it to the tenant org would store undemanded spans in the one org that
+  can never be expired). The router treated every non-2xx as retryable, so until
+  the next demand set reached the agent every batch carrying the deleted rule
+  became a retry storm (~13 rejected pushes/min per stale rule observed live).
+  4xx (except 408/429) now wraps in `consumererror.NewPermanent`, so
+  exporterhelper drops the batch; 408/429/5xx stay retryable. Pairs with
+  lean-api's miss-refresh in agent-auth (a just-created rule forces one fresh
+  rule-set lookup before a 403), which closes the creation race that permanent
+  drops would otherwise expose.
+
 ## [0.6.7] - 2026-07-24
 ### Fixed
 - **The trace ingestion rule now travels in a header, not the push path.** 0.6.6
