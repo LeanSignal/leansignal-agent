@@ -3,9 +3,9 @@
 #
 # Installs the agent (OpenTelemetry Collector), a co-located VictoriaMetrics
 # (metrics, from the release bundle), a co-located Loki (logs, from the
-# grafana/loki GitHub release; Linux only) and a co-located Tempo (traces,
-# from the grafana/tempo GitHub release; Linux only), then registers them as
-# services (systemd on Linux, launchd on macOS).
+# grafana/loki GitHub release) and a co-located Tempo (traces, from the
+# grafana/tempo GitHub release), then registers them as services (systemd on
+# Linux, launchd on macOS). All three stores install on both platforms.
 #
 # Quick start — you only need your agent key + tenant; the gRPC control host and
 # the ingest host are derived as <tenant>-grpc.<domain> and <tenant>-ingest.<domain>:
@@ -254,43 +254,46 @@ if [ "$INSTALL_VM" -eq 1 ]; then
   fi
 fi
 
-# Local Loki (log store) - pulled from the grafana/loki GitHub release (pinned
-# LOKI_VERSION), Linux only for now (no launchd plist yet - macOS installs skip it).
-if [ "$INSTALL_LOKI" -eq 1 ] && [ "$PLATFORM" != linux ]; then
-  info "NOTE: local Loki install is Linux-only for now; skipping on ${PLATFORM}"
-  INSTALL_LOKI=0
+# The per-platform service template each store needs: a systemd unit on Linux, a
+# launchd plist on macOS. Both stores ship for linux and darwin upstream, so the
+# only platform difference is which template must be present in the bundle.
+if [ "$PLATFORM" = linux ]; then
+  LOKI_SVC_TMPL="leansignal-loki.service"
+  TEMPO_SVC_TMPL="leansignal-tempo.service"
+else
+  LOKI_SVC_TMPL="com.leansignal.loki.plist"
+  TEMPO_SVC_TMPL="com.leansignal.tempo.plist"
 fi
+
+# Local Loki (log store) - pulled from the grafana/loki GitHub release (pinned
+# LOKI_VERSION).
 if [ "$INSTALL_LOKI" -eq 1 ] && ! command -v unzip >/dev/null 2>&1; then
   info "WARNING: unzip not found (needed to extract the Loki release); skipping local Loki. Install unzip and re-run, or use --no-loki to silence this."
   INSTALL_LOKI=0
 fi
-if [ "$INSTALL_LOKI" -eq 1 ] && { [ ! -f "$tmp/service-templates/loki.yaml" ] || [ ! -f "$tmp/service-templates/leansignal-loki.service" ]; }; then
-  info "WARNING: bundle has no Loki config/service templates (need a newer release); skipping local Loki"
+if [ "$INSTALL_LOKI" -eq 1 ] && { [ ! -f "$tmp/service-templates/loki.yaml" ] || [ ! -f "$tmp/service-templates/${LOKI_SVC_TMPL}" ]; }; then
+  info "WARNING: bundle has no Loki config/service templates for ${PLATFORM} (need a newer release); skipping local Loki"
   INSTALL_LOKI=0
 fi
 if [ "$INSTALL_LOKI" -eq 1 ]; then
-  loki_zip="loki-linux-${ARCH}.zip"
+  loki_zip="loki-${PLATFORM}-${ARCH}.zip"
   loki_url="https://github.com/grafana/loki/releases/download/v${LOKI_VERSION}/${loki_zip}"
   info "downloading Loki v${LOKI_VERSION} (${loki_zip})"
   curl -fsSL -o "$tmp/$loki_zip" "$loki_url" || err "download failed: ${loki_url}"
   unzip -oq "$tmp/$loki_zip" -d "$tmp/loki-extract"
-  install -m 0755 "$tmp/loki-extract/loki-linux-${ARCH}" "$BIN_DIR/loki"
+  install -m 0755 "$tmp/loki-extract/loki-${PLATFORM}-${ARCH}" "$BIN_DIR/loki"
   install -d "$DATA_DIR/loki"
   info "installed $BIN_DIR/loki"
 fi
 
 # Local Tempo (trace store) - pulled from the grafana/tempo GitHub release
-# (pinned TEMPO_VERSION), Linux only for now (no launchd plist yet).
-if [ "$INSTALL_TEMPO" -eq 1 ] && [ "$PLATFORM" != linux ]; then
-  info "NOTE: local Tempo install is Linux-only for now; skipping on ${PLATFORM}"
-  INSTALL_TEMPO=0
-fi
-if [ "$INSTALL_TEMPO" -eq 1 ] && { [ ! -f "$tmp/service-templates/tempo.yaml" ] || [ ! -f "$tmp/service-templates/leansignal-tempo.service" ]; }; then
-  info "WARNING: bundle has no Tempo config/service templates (need a newer release); skipping local Tempo"
+# (pinned TEMPO_VERSION).
+if [ "$INSTALL_TEMPO" -eq 1 ] && { [ ! -f "$tmp/service-templates/tempo.yaml" ] || [ ! -f "$tmp/service-templates/${TEMPO_SVC_TMPL}" ]; }; then
+  info "WARNING: bundle has no Tempo config/service templates for ${PLATFORM} (need a newer release); skipping local Tempo"
   INSTALL_TEMPO=0
 fi
 if [ "$INSTALL_TEMPO" -eq 1 ]; then
-  tempo_tar="tempo_${TEMPO_VERSION}_linux_${ARCH}.tar.gz"
+  tempo_tar="tempo_${TEMPO_VERSION}_${PLATFORM}_${ARCH}.tar.gz"
   tempo_url="https://github.com/grafana/tempo/releases/download/v${TEMPO_VERSION}/${tempo_tar}"
   info "downloading Tempo v${TEMPO_VERSION} (${tempo_tar})"
   curl -fsSL -o "$tmp/$tempo_tar" "$tempo_url" || err "download failed: ${tempo_url}"
@@ -312,23 +315,24 @@ else
   cp "$SRC_CONFIG" "$CONF_DIR/config.yaml"
 fi
 
-# local Loki config (same no-clobber rule)
+# local Loki config (same no-clobber rule). __DATA_DIR__ is substituted with the
+# platform data dir so one template serves both Linux and macOS.
 if [ "$INSTALL_LOKI" -eq 1 ]; then
   if [ -f "$CONF_DIR/loki.yaml" ]; then
-    cp "$tmp/service-templates/loki.yaml" "$CONF_DIR/loki.yaml.new"
+    sed -e "s|__DATA_DIR__|${DATA_DIR}|g" "$tmp/service-templates/loki.yaml" > "$CONF_DIR/loki.yaml.new"
     info "existing loki config kept; new template at $CONF_DIR/loki.yaml.new"
   else
-    cp "$tmp/service-templates/loki.yaml" "$CONF_DIR/loki.yaml"
+    sed -e "s|__DATA_DIR__|${DATA_DIR}|g" "$tmp/service-templates/loki.yaml" > "$CONF_DIR/loki.yaml"
   fi
 fi
 
 # local Tempo config (same no-clobber rule)
 if [ "$INSTALL_TEMPO" -eq 1 ]; then
   if [ -f "$CONF_DIR/tempo.yaml" ]; then
-    cp "$tmp/service-templates/tempo.yaml" "$CONF_DIR/tempo.yaml.new"
+    sed -e "s|__DATA_DIR__|${DATA_DIR}|g" "$tmp/service-templates/tempo.yaml" > "$CONF_DIR/tempo.yaml.new"
     info "existing tempo config kept; new template at $CONF_DIR/tempo.yaml.new"
   else
-    cp "$tmp/service-templates/tempo.yaml" "$CONF_DIR/tempo.yaml"
+    sed -e "s|__DATA_DIR__|${DATA_DIR}|g" "$tmp/service-templates/tempo.yaml" > "$CONF_DIR/tempo.yaml"
   fi
 fi
 
@@ -384,6 +388,16 @@ else
     cp "$tmp/service-templates/com.leansignal.victoria-metrics.plist" /Library/LaunchDaemons/
     launchctl unload /Library/LaunchDaemons/com.leansignal.victoria-metrics.plist 2>/dev/null || true
     launchctl load -w /Library/LaunchDaemons/com.leansignal.victoria-metrics.plist
+  fi
+  if [ "$INSTALL_LOKI" -eq 1 ]; then
+    cp "$tmp/service-templates/com.leansignal.loki.plist" /Library/LaunchDaemons/
+    launchctl unload /Library/LaunchDaemons/com.leansignal.loki.plist 2>/dev/null || true
+    launchctl load -w /Library/LaunchDaemons/com.leansignal.loki.plist
+  fi
+  if [ "$INSTALL_TEMPO" -eq 1 ]; then
+    cp "$tmp/service-templates/com.leansignal.tempo.plist" /Library/LaunchDaemons/
+    launchctl unload /Library/LaunchDaemons/com.leansignal.tempo.plist 2>/dev/null || true
+    launchctl load -w /Library/LaunchDaemons/com.leansignal.tempo.plist
   fi
   # substitute env values into the agent plist
   sed -e "s|__LEANSIGNAL_TENANT__|${TENANT}|" \

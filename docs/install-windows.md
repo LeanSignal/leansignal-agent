@@ -6,10 +6,13 @@ is supported.
 
 > The agent collects **telemetry** — metrics, logs, and traces — and its OTLP
 > endpoints accept all three. On Windows, though, only the co-located **metrics**
-> store (VictoriaMetrics) is installed: the co-located log and trace stores
-> (Loki, Tempo) are **Linux-only for now**, so logs and traces are not yet stored
-> locally or forwarded to LeanSignal from a Windows install. Run the agent on
-> **Linux** for full logs/traces support (see [install-linux.md](install-linux.md)).
+> store (VictoriaMetrics) is installed. Co-located **log and trace** stores (Loki,
+> Tempo) are installed automatically on [Linux](install-linux.md) and
+> [macOS](install-macos.md), but have no Windows equivalent yet. On Windows, logs
+> and traces are still received, and demanded ones are still forwarded to
+> LeanSignal — what you lose is the **local** full-fidelity buffer and the ability
+> to explore logs/traces before demanding them. See
+> [Logs and traces on Windows](#logs-and-traces-on-windows) below.
 
 ## Install
 
@@ -27,12 +30,25 @@ Invoke-WebRequest $u -OutFile install.ps1
 | `-AgentKey` | agent auth key (required, both modes) |
 | `-AgentName` | name identifying this agent/host; becomes the `leansignal_agent_name` label on every metric (required, both modes) |
 | `-CentralUrl` | install in **edge** mode: forward OTLP to this central agent (`host:port`, plaintext). Also via `CENTRAL_AGENT_GRPC_URL`. No local VM; `-Tenant` not needed |
-| `-Tenant` | tenant name; derives `<tenant>-grpc.<domain>:443` and `…-ingest.<domain>` (required for **central** mode unless `-Endpoint` is given) |
-| `-Domain` | cluster domain (default: `eu11.leansignal.io`) |
-| `-Endpoint` | advanced: gRPC control host `host:port`, overrides the derived one |
-| `-DataplaneEndpoint` | advanced: remote-write URL, overrides the derived one |
+| `-Tenant` | tenant slug (required for **central** mode). The agent resolves the tenant's region from control-center at startup and derives every backend host from it — gRPC control plus the metrics/logs/traces ingest hosts |
 | `-Version` | specific version (default: latest) |
 | `-NoVM` | don't install the local VictoriaMetrics |
+
+Advanced — each of these **pins** one value and skips resolution for it; leave
+them unset to let the agent derive everything from `-Tenant`:
+
+| Parameter | Meaning |
+|-----------|---------|
+| `-Domain` | region domain (e.g. `eu11.leansignal.io`); skips the control-center lookup entirely |
+| `-Endpoint` | gRPC control host `host:port` |
+| `-DataplaneEndpoint` | metrics ingest base URL |
+| `-LokiEndpoint` | logs ingest base URL |
+| `-TempoEndpoint` | traces ingest base URL |
+| `-CcUrl` | control-center origin (default `https://cc.leansignal.io`) |
+| `-ResolveAat` | resolve token (has a public default) |
+
+> There is no `-NoLoki` / `-NoTempo` on Windows — those stores are not installed
+> on Windows at all, so there is nothing to opt out of.
 
 ## It's already collecting
 
@@ -47,6 +63,37 @@ Invoke-RestMethod http://127.0.0.1:8428/api/v1/label/__name__/values   # metric 
 
 To send your own application metrics, point any OpenTelemetry SDK at the agent's
 OTLP endpoint (`http://127.0.0.1:4318` for HTTP, `:4317` for gRPC).
+
+## Logs and traces on Windows
+
+Local log/trace stores are installed automatically on **Linux and macOS**; there
+is no Windows equivalent today, and no `-NoLoki`/`-NoTempo` flag because nothing
+is installed to opt out of. The installer does lay down the **same collector
+config as Linux**, which still contains the full logs and traces pipelines. In
+practice:
+
+| | on Windows |
+|---|---|
+| OTLP logs/traces accepted on `:4317` / `:4318` | yes |
+| Loki push accepted on `:3500` / `:3600` | yes |
+| Demanded logs/traces forwarded to your tenant | yes |
+| Kept locally at full fidelity | **no** — no local store installed |
+| Explore/"Available" before you demand | **no** — that reads the local store |
+
+The practical consequence is discovery: on Linux you can browse everything the
+agent sees and *then* choose what to demand. On Windows there is nothing local to
+browse, so demand selectors have to be written directly.
+
+Because the shipped config still points its local exporters at
+`127.0.0.1:3100` (Loki) and `127.0.0.1:4328` (Tempo), the agent log shows
+repeated connection-refused export errors, and the `leansignal-aloki` /
+`leansignal-atempo` scrape jobs report `up=0`. Both are harmless — the tenant
+path is a separate pipeline and is unaffected. To quiet them, edit
+`%ProgramData%\LeanSignal\Agent\config.yaml`, remove `otlphttp/loki_local` and
+`otlphttp/tempo_local` from their pipelines' `exporters:` lists and drop the two
+scrape jobs from `prometheus/localstores`, then restart the service. If this host
+sends no logs or traces at all, you can delete the `logs/*` and `traces/*`
+pipelines outright.
 
 ## What it installs
 
@@ -100,28 +147,18 @@ The agent's connection details are stored on the `LeanSignalAgent` service's reg
 ```powershell
 $k = 'HKLM:\SYSTEM\CurrentControlSet\Services\LeanSignalAgent'
 Set-ItemProperty -Path $k -Name Environment -Value @(
-  "LEANSIGNAL_ENDPOINT=NEW_TENANT-grpc.eu11.leansignal.io:443",
+  "LEANSIGNAL_TENANT=NEW_TENANT",
   "LEANSIGNAL_AGENT_KEY=NEW_KEY",
-  "LEANSIGNAL_DATAPLANE_ENDPOINT=https://NEW_TENANT-ingest.eu11.leansignal.io/api/v1/write"
+  "LEANSIGNAL_AGENT_NAME=this-host"
 )
 Restart-Service LeanSignalAgent
-Stop-Service    LeanSignalAgent
-Start-Service   LeanSignalAgent
-
-# VICTORIA-METRICS — restart (also cycles the dependent agent)
-Restart-Service LeanSignalVictoriaMetrics -Force
 ```
-Changing the **tenant** updates **three** values (the key **and** both `-grpc` /
-`-ingest` hosts, which embed the tenant name).
-
-Local store: `http://127.0.0.1:8428` · agent health: `http://127.0.0.1:13133`.
-
-### Local VM retention
-
-The local store keeps a **fixed 1 day (24h)** of data by design — it's a short edge
-buffer (full fidelity is kept locally; only the demanded subset is forwarded to the
-central dataplane). It's set to `--retentionPeriod=1d` on the
-`LeanSignalVictoriaMetrics` service and is not a configurable option.
+Changing the **tenant** normally means changing just the slug and the key: the
+agent resolves the region from control-center at startup and derives every
+backend host from `LEANSIGNAL_TENANT`. Add a `LEANSIGNAL_{ENDPOINT,
+DATAPLANE_ENDPOINT,LOKI_ENDPOINT,TEMPO_ENDPOINT}` entry only to **pin** that host
+and bypass resolution for it, or `LEANSIGNAL_DOMAIN` to pin the region and skip
+the lookup entirely.
 
 ## Upgrading
 

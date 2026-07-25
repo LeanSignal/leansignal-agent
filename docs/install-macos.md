@@ -1,15 +1,14 @@
 # Install on macOS
 
-Installs the agent and a co-located VictoriaMetrics (local metrics store),
-registered as **launchd** daemons. Requires root (the script uses `sudo`). Apple
-silicon (arm64) and Intel (amd64) are supported.
+Installs the agent and all three co-located local stores — **VictoriaMetrics**
+(metrics), **Loki** (logs) and **Tempo** (traces) — registered as **launchd**
+daemons. Requires root (the script uses `sudo`). Apple silicon (arm64) and Intel
+(amd64) are supported.
 
-> The agent collects **telemetry** — metrics, logs, and traces — and its OTLP
-> endpoints accept all three. On macOS, though, only the co-located **metrics**
-> store (VictoriaMetrics) is installed: the co-located log and trace stores
-> (Loki, Tempo) are **Linux-only for now**, so logs and traces are not yet stored
-> locally or forwarded to LeanSignal from a macOS install. Run the agent on
-> **Linux** for full logs/traces support (see [install-linux.md](install-linux.md)).
+> macOS is a **full-feature** platform: the agent collects metrics, logs and
+> traces, keeps everything locally at full fidelity for a short window, and
+> forwards only what LeanSignal demands — exactly as on Linux. Skip a store with
+> `--no-loki` / `--no-tempo` / `--no-vm` if you don't want it.
 
 ## Install
 
@@ -25,16 +24,136 @@ See [install-linux.md](install-linux.md) for the full flag list.
 
 The installer creates and starts the launchd daemons, so the agent is running
 now. **Your Mac's host metrics — CPU, memory, disk, filesystem, network — are
-collected automatically**; nothing else to configure. Verify:
+collected automatically**; nothing else to configure.
+
+To send your own telemetry, point any OpenTelemetry SDK at the agent's OTLP
+endpoint (`http://127.0.0.1:4318` for HTTP, `:4317` for gRPC). Log shippers that
+speak the Loki push API can use `:3500` (HTTP) or `:3600` (gRPC).
+
+## Checking it works
+
+Everything below is loopback-only, so these run on the Mac itself.
+
+### Is the agent up?
 
 ```bash
-curl -sf http://127.0.0.1:13133/ && echo " agent healthy"          # health check
-curl -s http://127.0.0.1:8428/api/v1/label/__name__/values         # metric names in the local store
+curl -sf http://127.0.0.1:13133/ && echo " agent healthy"   # health check
+sudo launchctl list | grep leansignal                       # numeric PID = running
+tail -f /usr/local/var/log/leansignal-agent/agent.log       # agent's own log
 ```
 
-To send your own application metrics, point any OpenTelemetry SDK at the agent's
-OTLP endpoint (`http://127.0.0.1:4318` for HTTP, `:4317` for gRPC).
+The agent **self-monitors**: its own metrics, logs and traces are pushed through
+its own pipelines under `service.name=leansignal-agent`, so it is its own first
+test signal — the queries below find data even before you send anything.
 
+### Metrics — local store on `:8428`
+
+```bash
+# what metric names exist locally
+curl -s 'http://127.0.0.1:8428/api/v1/label/__name__/values' | head -c 500
+
+# your Mac's host metrics are flowing
+curl -s --get 'http://127.0.0.1:8428/api/v1/query' \
+  --data-urlencode 'query=system_cpu_load_average_1m'
+
+# the control-channel connection is up (1 = connected to LeanSignal)
+curl -s --get 'http://127.0.0.1:8428/api/v1/query' \
+  --data-urlencode 'query=leansignal_edgecontroller_connection_up'
+
+# every series carries this host's identity labels
+curl -s --get 'http://127.0.0.1:8428/api/v1/query' \
+  --data-urlencode 'query=up{leansignal_mode="central"}'
+```
+
+### Logs — local store on `:3100`
+
+Installed by default (skipped only if you passed `--no-loki`).
+
+```bash
+curl -s http://127.0.0.1:3100/ready                            # expect: ready
+
+# which streams exist, and their service names
+curl -s 'http://127.0.0.1:3100/loki/api/v1/labels'
+curl -s 'http://127.0.0.1:3100/loki/api/v1/label/service_name/values'
+
+# the agent's own logs (always present — good smoke test)
+curl -s --get 'http://127.0.0.1:3100/loki/api/v1/query_range' \
+  --data-urlencode 'query={service_name="leansignal-agent"}' \
+  --data-urlencode 'limit=5'
+```
+
+> Remember the local window is **1 hour** and exact (`max_query_lookback: 1h`) —
+> a query over a longer range returns nothing older than that, by design.
+
+### Traces — local store on `:3200`
+
+Installed by default (skipped only if you passed `--no-tempo`).
+
+```bash
+curl -s http://127.0.0.1:3200/ready                            # expect: ready
+
+# recent traces (TraceQL; {} matches everything)
+curl -s --get 'http://127.0.0.1:3200/api/search' \
+  --data-urlencode 'q={}' --data-urlencode 'limit=5'
+
+# search by a resource attribute
+curl -s --get 'http://127.0.0.1:3200/api/search' \
+  --data-urlencode 'tags=service.name=my-service' --data-urlencode 'limit=5'
+
+# one trace by id (works the moment it is ingested)
+curl -s 'http://127.0.0.1:3200/api/traces/<trace-id>'
+```
+
+> `/api/search/tags` (the tag-*name* index) stays empty until Tempo flushes its
+> first blocks, so an empty list there shortly after install is expected — search
+> and trace-by-id already work against the in-memory ingester.
+
+> Unlike metrics and logs, the agent emits **very few spans of its own**, so an
+> empty result here usually means nothing has sent traces yet rather than a
+> broken store. Point an instrumented app at `:4318` and re-check.
+
+### What is actually being forwarded to LeanSignal?
+
+The local stores hold **everything**; only *demanded* telemetry leaves the host.
+Each filter logs its verdict per batch, so the agent log tells you the split:
+
+```bash
+grep 'demand filter' /usr/local/var/log/leansignal-agent/agent.log | tail -20
+```
+
+You'll see lines like `demand filter: batch filtered` with `received` / `allowed`
+/ `dropped` counts (and `log demand filter:` / `trace demand filter:` for the
+other two signals). **`allowed=0` on a fresh agent is normal and correct** — the
+filters are fail-closed, so nothing is forwarded until a dashboard or alert in
+LeanSignal demands it. Metrics keep landing in the local store either way.
+
+## How logs and traces are stored
+
+The installer sets up **all three** local stores on macOS, so there is nothing
+extra to do:
+
+| Signal | Local store | Port | Local window |
+|---|---|---|---|
+| metrics | VictoriaMetrics | `8428` | 1 day (exact) |
+| logs | Loki | `3100` | 1 hour (exact) |
+| traces | Tempo | `3200` (OTLP ingest `4328`) | ~1 hour (approximate) |
+
+Everything the agent sees is written to these stores at full fidelity; only what
+LeanSignal **demands** is forwarded to your tenant. That local copy is what makes
+discovery work — you browse what the agent is actually seeing and *then* choose
+what to demand.
+
+Tempo's OTLP receiver binds **4328** rather than the usual 4317/4318, because the
+agent collector itself owns those ports.
+
+If you installed with `--no-loki` or `--no-tempo`, the collector config still
+contains the logs/traces pipelines (it is identical on every platform), so the
+agent will log repeated connection-refused errors for the missing store and the
+`leansignal-aloki` / `leansignal-atempo` scrape jobs will report `up=0`. That is
+harmless — telemetry still reaches your tenant, since the tenant path is a
+separate pipeline. To silence it, remove `otlphttp/loki_local` /
+`otlphttp/tempo_local` from their pipelines' `exporters:` lists in
+`/usr/local/etc/leansignal-agent/config.yaml` and drop the matching scrape jobs.
 ## What it installs
 
 | Path | |
@@ -45,19 +164,28 @@ OTLP endpoint (`http://127.0.0.1:4318` for HTTP, `:4317` for gRPC).
 | `/usr/local/var/log/leansignal-agent/` | logs |
 | `/Library/LaunchDaemons/com.leansignal.agent.plist`, `com.leansignal.victoria-metrics.plist` | services |
 
+The log and trace stores follow the same layout: `/usr/local/bin/{loki,tempo}`,
+`/usr/local/etc/leansignal-agent/{loki,tempo}.yaml`,
+`/usr/local/var/leansignal-agent/{loki,tempo}`, and
+`/Library/LaunchDaemons/com.leansignal.{loki,tempo}.plist`.
+
 ## Manage
 
-Two **independent** LaunchDaemons — the collector (`com.leansignal.agent`) and the
-local store (`com.leansignal.victoria-metrics`). Manage each separately; stopping
-one does not affect the other.
+**Independent** LaunchDaemons — the collector (`com.leansignal.agent`) and one per
+local store (`com.leansignal.victoria-metrics`, plus `com.leansignal.loki` /
+`com.leansignal.tempo` if you added them). Manage each separately; stopping one
+does not affect the others.
 
 ```bash
-# STATUS — both (a numeric PID in the first column = running)
+# STATUS — all of them (a numeric PID in the first column = running)
 sudo launchctl list | grep leansignal
 
-# RESTART either one (one-liner; the other is unaffected)
+# RESTART any one (one-liner; the others are unaffected)
 sudo launchctl kickstart -k system/com.leansignal.agent
 sudo launchctl kickstart -k system/com.leansignal.victoria-metrics
+# …and, if installed:
+sudo launchctl kickstart -k system/com.leansignal.loki
+sudo launchctl kickstart -k system/com.leansignal.tempo
 
 # STOP / START (unload = stop, load = start)
 sudo launchctl unload /Library/LaunchDaemons/com.leansignal.agent.plist
@@ -67,20 +195,29 @@ sudo launchctl load   -w /Library/LaunchDaemons/com.leansignal.agent.plist
 # LOGS — one file per service
 tail -f /usr/local/var/log/leansignal-agent/agent.log
 tail -f /usr/local/var/log/leansignal-agent/victoria-metrics.log
+tail -f /usr/local/var/log/leansignal-agent/loki.log      # if installed
+tail -f /usr/local/var/log/leansignal-agent/tempo.log     # if installed
 ```
 
 > macOS system daemons live in the `system/` domain and need `sudo`; the labels are
-> `com.leansignal.agent` and `com.leansignal.victoria-metrics`.
+> `com.leansignal.agent`, `com.leansignal.victoria-metrics`, and — if you added
+> them — `com.leansignal.loki` / `com.leansignal.tempo`.
 
-Local store: `http://127.0.0.1:8428` · agent health: `http://127.0.0.1:13133`.
+Local stores: metrics `http://127.0.0.1:8428` · logs `http://127.0.0.1:3100` ·
+traces `http://127.0.0.1:3200` · agent health `http://127.0.0.1:13133`.
 
-### Local VM retention
+### Local retention windows
 
-The local store keeps a **fixed 1 day (24h)** of data by design — it's a short edge
-buffer (full fidelity is kept locally; only the demanded subset is forwarded to the
-central dataplane). It's set to `--retentionPeriod=1d` in
-`/Library/LaunchDaemons/com.leansignal.victoria-metrics.plist` and is not a
-configurable option.
+Each local store is a short, full-fidelity edge buffer — everything is kept
+locally for the window, and only the demanded subset is forwarded to LeanSignal.
+None of these windows is configurable through the agent; edit the store's own
+plist or config to change one.
+
+| Store | Window | Set in |
+|---|---|---|
+| VictoriaMetrics (metrics) | **1 day**, exact | `--retentionPeriod=1d` in `com.leansignal.victoria-metrics.plist` |
+| Loki (logs) | **1 hour**, exact | `max_query_lookback: 1h` in `loki.yaml` (`retention_period: 2h` only bounds disk) |
+| Tempo (traces) | **~1 hour**, approximate | `block_retention: 1h` in `tempo.yaml` — deletion is compaction-driven, so queries may see a little more |
 
 > Note: macOS binaries from a release are not notarized; Gatekeeper may require
 > approval the first time. Bundles installed via the script run as root daemons.
@@ -95,18 +232,24 @@ The live connection details are the agent LaunchDaemon's `EnvironmentVariables`
 sudo nano /Library/LaunchDaemons/com.leansignal.agent.plist
 ```
 ```xml
-<key>LEANSIGNAL_ENDPOINT</key>           <string><tenant>-grpc.eu11.leansignal.io:443</string>
-<key>LEANSIGNAL_AGENT_KEY</key>          <string><key></string>
-<key>LEANSIGNAL_DATAPLANE_ENDPOINT</key> <string>https://<tenant>-ingest.eu11.leansignal.io/api/v1/write</string>
+<key>LEANSIGNAL_TENANT</key>    <string><tenant></string>
+<key>LEANSIGNAL_AGENT_KEY</key> <string><key></string>
 ```
 ```bash
 sudo launchctl unload /Library/LaunchDaemons/com.leansignal.agent.plist
 sudo launchctl load -w /Library/LaunchDaemons/com.leansignal.agent.plist
 ```
 
-Changing the **tenant** updates **three** values (the key **and** both `-grpc` /
-`-ingest` hosts, which embed the tenant name). Or just re-run the installer with
-`--agent-key` / `--tenant` (it rewrites these and keeps your config + VM data).
+Normally those are the only **two** values you touch: the agent resolves its
+tenant's region from control-center at startup and derives every backend host
+from the slug (gRPC control plus the metrics/logs/traces ingest hosts), so
+changing tenant means changing the slug and the key — nothing else. The plist
+also has empty `LEANSIGNAL_ENDPOINT` / `LEANSIGNAL_DATAPLANE_ENDPOINT` entries;
+fill one in only to **pin** that host and bypass resolution for it (there are
+matching `LEANSIGNAL_LOKI_ENDPOINT` / `LEANSIGNAL_TEMPO_ENDPOINT` overrides, and
+`LEANSIGNAL_DOMAIN` pins the region and skips the lookup entirely). Or just
+re-run the installer with `--agent-key` / `--tenant` (it rewrites these and keeps
+your config + VM data).
 
 ## Upgrading
 

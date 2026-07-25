@@ -1,5 +1,11 @@
 # Loki config for the LeanSignal Agent's co-located local log store.
-# Installed to /etc/leansignal-agent/loki.yaml by scripts/install/install.sh.
+# Installed by scripts/install/install.sh to the platform's config dir
+# (/etc/leansignal-agent/loki.yaml on Linux,
+# /usr/local/etc/leansignal-agent/loki.yaml on macOS).
+#
+# The data-directory placeholder below is substituted by the installer with the
+# platform data dir: /var/lib/leansignal-agent on Linux,
+# /usr/local/var/leansignal-agent on macOS.
 #
 # Single binary, filesystem storage, loopback-only — the logs twin of the
 # co-located VictoriaMetrics. It holds a short (~1h) full-fidelity window; the
@@ -16,11 +22,11 @@ server:
 
 common:
   instance_addr: 127.0.0.1
-  path_prefix: /var/lib/leansignal-agent/loki
+  path_prefix: __DATA_DIR__/loki
   storage:
     filesystem:
-      chunks_directory: /var/lib/leansignal-agent/loki/chunks
-      rules_directory: /var/lib/leansignal-agent/loki/rules
+      chunks_directory: __DATA_DIR__/loki/chunks
+      rules_directory: __DATA_DIR__/loki/rules
   replication_factor: 1
   ring:
     kvstore:
@@ -48,7 +54,7 @@ limits_config:
   retention_period: 2h
 
 compactor:
-  working_directory: /var/lib/leansignal-agent/loki/compactor
+  working_directory: __DATA_DIR__/loki/compactor
   retention_enabled: true
   delete_request_store: filesystem
   retention_delete_delay: 10m
