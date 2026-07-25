@@ -9,11 +9,7 @@ dist:
   # edge controller reports to lean-api via BuildInfo.Version). The release
   # workflow overrides this with the git tag at build time. This is independent
   # of the OpenTelemetry Collector Contrib base version (pinned per-component below).
-<<<<<<< HEAD
   version: 0.7.0
-=======
-  version: 0.6.8
->>>>>>> origin/main
   output_path: ./_build
   build_tags: "grpcnotrace"
 
