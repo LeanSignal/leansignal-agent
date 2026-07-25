@@ -61,6 +61,11 @@ All notable changes to this project are documented here. The format is based on
   `leansignal-agent…`. Each `kubectl logs` / `rollout restart` / `get cm` as
   written failed with `NotFound`, and the advertised in-cluster OTLP address
   (`leansignal-agent.leansignal.svc:4317`) resolved to nothing.
+- **`make lint` was red on `main`.** Two `tracedemand` imports had been placed in
+  the stdlib group (goimports), and once that was fixed staticcheck surfaced four
+  SA5011 findings behind it: two tests nil-checked a constructor that returns
+  `&T{}` and can never be nil, making the following field access look like a
+  possible nil dereference. Imports regrouped, the dead nil-checks dropped.
 
 ## [0.6.8] - 2026-07-24
 ### Fixed
