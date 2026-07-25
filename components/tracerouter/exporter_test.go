@@ -12,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"go.opentelemetry.io/collector/consumer/consumererror"
 	"go.opentelemetry.io/collector/pdata/ptrace"
 	"go.opentelemetry.io/collector/pdata/ptrace/ptraceotlp"
 	"go.uber.org/zap"
@@ -167,5 +168,42 @@ func TestPushTraces_ErrorOnNon2xx(t *testing.T) {
 
 	if err := r.pushTraces(context.Background(), td); err == nil {
 		t.Fatal("expected a non-2xx push to error")
+	}
+}
+
+// A 403 — lean-api rejecting a deleted rule's push — must be PERMANENT so the
+// batch is dropped, not retried: until the next demand set arrives every batch
+// names that rule, and retrying turned each one into a retry storm. 429/5xx mean
+// "later" and must stay retryable.
+func TestPushTraces_ClientErrorsArePermanent(t *testing.T) {
+	for _, tc := range []struct {
+		status    int
+		permanent bool
+	}{
+		{http.StatusForbidden, true},
+		{http.StatusBadRequest, true},
+		{http.StatusTooManyRequests, false},
+		{http.StatusServiceUnavailable, false},
+	} {
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			w.WriteHeader(tc.status)
+		}))
+
+		r := newRouter(zap.NewNop(), &Config{Endpoint: srv.URL, Timeout: 5 * time.Second})
+		_ = r.start(context.Background(), nil)
+
+		td := ptrace.NewTraces()
+		stamped("svc", "rule-a").CopyTo(td.ResourceSpans().AppendEmpty())
+
+		err := r.pushTraces(context.Background(), td)
+		srv.Close()
+
+		if err == nil {
+			t.Fatalf("status %d: expected an error", tc.status)
+		}
+
+		if got := consumererror.IsPermanent(err); got != tc.permanent {
+			t.Errorf("status %d: IsPermanent = %v, want %v", tc.status, got, tc.permanent)
+		}
 	}
 }

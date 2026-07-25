@@ -14,6 +14,7 @@ import (
 
 	"go.opentelemetry.io/collector/component"
 	"go.opentelemetry.io/collector/consumer"
+	"go.opentelemetry.io/collector/consumer/consumererror"
 	"go.opentelemetry.io/collector/pdata/ptrace"
 	"go.opentelemetry.io/collector/pdata/ptrace/ptraceotlp"
 	"go.uber.org/zap"
@@ -149,7 +150,21 @@ func (r *router) push(ctx context.Context, filterID string, td ptrace.Traces) er
 	defer resp.Body.Close()
 
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return fmt.Errorf("HTTP %d from %s (rule %q)", resp.StatusCode, r.tracesURL(), filterID)
+		err := fmt.Errorf("HTTP %d from %s (rule %q)", resp.StatusCode, r.tracesURL(), filterID)
+
+		// Client errors are PERMANENT: retrying re-sends a batch the server has
+		// already decided against. The one that matters operationally is 403 —
+		// lean-api rejects pushes naming a deleted rule, and until the next
+		// demand set reaches this agent every batch carries that rule; treating
+		// it as retryable turned each one into a retry storm (observed live:
+		// ~13 rejected pushes/min per rule). 408/429 stay retryable: they mean
+		// "later", not "never".
+		if resp.StatusCode >= 400 && resp.StatusCode < 500 &&
+			resp.StatusCode != http.StatusRequestTimeout && resp.StatusCode != http.StatusTooManyRequests {
+			return consumererror.NewPermanent(err)
+		}
+
+		return err
 	}
 
 	return nil
