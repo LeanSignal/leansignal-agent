@@ -42,6 +42,25 @@ All notable changes to this project are documented here. The format is based on
   verification section covering all three signals (including why `allowed=0` in
   the demand-filter log lines is correct on a fresh agent, and why Tempo's
   `/api/search/tags` is empty until its first blocks flush).
+- Every install guide now documents, per service, how to **read its logs**,
+  **edit its config** and **restart just it**. Windows gains the log story it
+  never had: `sc.exe` does not capture the collector's stderr, so there is no log
+  file — the guide now covers the Event Log, running the binary in the foreground
+  with the service's environment loaded, and reading the agent's own logs in
+  LeanSignal once `{service_name="leansignal-agent"}` is demanded.
+
+### Fixed
+- **`docs/install-kubernetes.md` claimed the chart bundles no Loki or Tempo.** It
+  has for some time: `localLoki.deploy` and `localTempo.deploy` both default to
+  `true`, so central-mode installs get a Loki and a Tempo Deployment alongside the
+  collector. The guide told users to go run their own and, in the "what gets
+  created" list, to expect neither.
+- **Every `kubectl` command in that guide named the wrong resource.** The chart's
+  `fullname` helper always prefixes the release name rather than deduping it, so
+  the documented install produces `leansignal-agent-leansignal-agent…`, not
+  `leansignal-agent…`. Each `kubectl logs` / `rollout restart` / `get cm` as
+  written failed with `NotFound`, and the advertised in-cluster OTLP address
+  (`leansignal-agent.leansignal.svc:4317`) resolved to nothing.
 
 ## [0.6.8] - 2026-07-24
 ### Fixed

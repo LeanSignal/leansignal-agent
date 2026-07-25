@@ -20,9 +20,10 @@ package leansignaledgecontroller
 import (
 	"context"
 	"crypto/tls"
-	"github.com/leansignal/leansignal-agent/components/tracedemand"
 	"sync"
 	"time"
+
+	"github.com/leansignal/leansignal-agent/components/tracedemand"
 
 	"go.opentelemetry.io/collector/component"
 	"go.opentelemetry.io/otel/metric"

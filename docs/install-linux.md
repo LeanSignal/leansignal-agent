@@ -122,6 +122,22 @@ Local metrics store: `http://127.0.0.1:8428` · local log store:
 `http://127.0.0.1:3100` · local trace store: `http://127.0.0.1:3200` · agent
 health: `http://127.0.0.1:13133`.
 
+### Configuration files
+
+Edit the file, then restart **only** that service — the others keep running and
+no data is lost.
+
+| Service | Config | Restart with |
+|---|---|---|
+| agent (collector) | `/etc/leansignal-agent/config.yaml` | `sudo systemctl restart leansignal-agent` |
+| agent connection details | `/etc/leansignal-agent/agent.env` (0600) | `sudo systemctl restart leansignal-agent` |
+| VictoriaMetrics (metrics) | flags in `/etc/systemd/system/leansignal-victoria-metrics.service` | `sudo systemctl daemon-reload && sudo systemctl restart leansignal-victoria-metrics` |
+| Loki (logs) | `/etc/leansignal-agent/loki.yaml` | `sudo systemctl restart leansignal-loki` |
+| Tempo (traces) | `/etc/leansignal-agent/tempo.yaml` | `sudo systemctl restart leansignal-tempo` |
+
+Re-running the installer never clobbers an existing config; it writes
+`config.yaml.new` / `loki.yaml.new` / `tempo.yaml.new` beside it instead.
+
 ### Local VM retention
 
 The local store keeps a **fixed 1 day (24h)** of data by design — it's a short edge

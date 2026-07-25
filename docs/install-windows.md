@@ -128,6 +128,46 @@ Restart-Service LeanSignalVictoriaMetrics -Force
 
 Local store: `http://127.0.0.1:8428` · agent health: `http://127.0.0.1:13133`.
 
+### Viewing the agent's logs
+
+Unlike Linux (journald) and macOS (log files), the Windows services are created
+with `sc.exe` and **do not capture the agent's stderr** — so there is no log file
+to tail. Three ways to see what the agent is saying:
+
+```powershell
+# 1. Service-level failures (won't start, crashed, restarted) — Windows Event Log
+Get-WinEvent -FilterHashtable @{LogName='System'; ProviderName='Service Control Manager'} -MaxEvents 20 |
+  Where-Object { $_.Message -match 'LeanSignal' } | Format-List TimeCreated, Message
+
+# 2. Full collector logs — stop the service and run it in the foreground.
+#    The service's environment lives in the registry, so load it into the session first.
+Stop-Service LeanSignalAgent
+$k = 'HKLM:\SYSTEM\CurrentControlSet\Services\LeanSignalAgent'
+(Get-ItemProperty -Path $k -Name Environment).Environment |
+  ForEach-Object { $n,$v = $_ -split '=',2; Set-Item -Path "Env:$n" -Value $v }
+& "$env:ProgramFiles\LeanSignal\Agent\leansignal-agent.exe" --config "$env:ProgramData\LeanSignal\Agent\config.yaml"
+# Ctrl-C when done, then: Start-Service LeanSignalAgent
+```
+
+**3. In LeanSignal itself.** The agent pushes its own logs through its own
+pipelines under `service.name=leansignal-agent`, so once a dashboard demands
+`{service_name="leansignal-agent"}` they are forwarded to your tenant Loki and
+readable in the UI — no console access needed. This is the only option that works
+without stopping the service, and the practical one for a fleet.
+
+### Configuration files
+
+Edit the file, then restart the service.
+
+| Service | Config | Restart with |
+|---|---|---|
+| agent (collector) | `%ProgramData%\LeanSignal\Agent\config.yaml` | `Restart-Service LeanSignalAgent` |
+| agent connection details | registry `Environment` on `LeanSignalAgent` | `Restart-Service LeanSignalAgent` |
+| VictoriaMetrics (metrics) | flags in the service `binPath` | `Restart-Service LeanSignalVictoriaMetrics -Force` |
+
+Re-running the installer never clobbers an existing config; it writes
+`config.yaml.new` beside it instead.
+
 ### Local VM retention
 
 The local store keeps a **fixed 1 day (24h)** of data by design — it's a short edge

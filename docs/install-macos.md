@@ -154,57 +154,80 @@ harmless — telemetry still reaches your tenant, since the tenant path is a
 separate pipeline. To silence it, remove `otlphttp/loki_local` /
 `otlphttp/tempo_local` from their pipelines' `exporters:` lists in
 `/usr/local/etc/leansignal-agent/config.yaml` and drop the matching scrape jobs.
+
 ## What it installs
 
 | Path | |
 |------|---|
-| `/usr/local/bin/leansignal-agent`, `/usr/local/bin/victoria-metrics` | binaries |
+| `/usr/local/bin/leansignal-agent`, `/usr/local/bin/victoria-metrics`, `/usr/local/bin/loki`, `/usr/local/bin/tempo` | binaries |
 | `/usr/local/etc/leansignal-agent/config.yaml` | collector config |
+| `/usr/local/etc/leansignal-agent/loki.yaml` | local Loki config |
+| `/usr/local/etc/leansignal-agent/tempo.yaml` | local Tempo config |
 | `/usr/local/var/leansignal-agent/vm` | local VM data |
-| `/usr/local/var/log/leansignal-agent/` | logs |
-| `/Library/LaunchDaemons/com.leansignal.agent.plist`, `com.leansignal.victoria-metrics.plist` | services |
+| `/usr/local/var/leansignal-agent/loki` | local Loki data |
+| `/usr/local/var/leansignal-agent/tempo` | local Tempo data |
+| `/usr/local/var/log/leansignal-agent/` | logs, one file per service |
+| `/Library/LaunchDaemons/com.leansignal.agent.plist`, `com.leansignal.victoria-metrics.plist`, `com.leansignal.loki.plist`, `com.leansignal.tempo.plist` | services |
 
-The log and trace stores follow the same layout: `/usr/local/bin/{loki,tempo}`,
-`/usr/local/etc/leansignal-agent/{loki,tempo}.yaml`,
-`/usr/local/var/leansignal-agent/{loki,tempo}`, and
-`/Library/LaunchDaemons/com.leansignal.{loki,tempo}.plist`.
+A store you skipped with `--no-vm` / `--no-loki` / `--no-tempo` contributes none
+of its entries.
 
 ## Manage
 
-**Independent** LaunchDaemons — the collector (`com.leansignal.agent`) and one per
-local store (`com.leansignal.victoria-metrics`, plus `com.leansignal.loki` /
-`com.leansignal.tempo` if you added them). Manage each separately; stopping one
-does not affect the others.
+Four **independent** LaunchDaemons — the collector (`com.leansignal.agent`), the
+local metrics store (`com.leansignal.victoria-metrics`), the local log store
+(`com.leansignal.loki`) and the local trace store (`com.leansignal.tempo`).
+Manage each separately; restarting one does not touch the others.
 
 ```bash
-# STATUS — all of them (a numeric PID in the first column = running)
+# STATUS — all four (a numeric PID in the first column = running)
 sudo launchctl list | grep leansignal
 
-# RESTART any one (one-liner; the others are unaffected)
+# AGENT — restart (VictoriaMetrics + Loki + Tempo keep running)
 sudo launchctl kickstart -k system/com.leansignal.agent
+
+# VICTORIA-METRICS / LOKI / TEMPO — restart
 sudo launchctl kickstart -k system/com.leansignal.victoria-metrics
-# …and, if installed:
 sudo launchctl kickstart -k system/com.leansignal.loki
 sudo launchctl kickstart -k system/com.leansignal.tempo
 
-# STOP / START (unload = stop, load = start)
+# STOP / START any one (unload = stop, load = start)
 sudo launchctl unload /Library/LaunchDaemons/com.leansignal.agent.plist
 sudo launchctl load   -w /Library/LaunchDaemons/com.leansignal.agent.plist
-# …same with com.leansignal.victoria-metrics.plist for the store
+# …same for com.leansignal.victoria-metrics.plist / .loki.plist / .tempo.plist
 
-# LOGS — one file per service
+# LIVE LOGS (per service)
 tail -f /usr/local/var/log/leansignal-agent/agent.log
 tail -f /usr/local/var/log/leansignal-agent/victoria-metrics.log
-tail -f /usr/local/var/log/leansignal-agent/loki.log      # if installed
-tail -f /usr/local/var/log/leansignal-agent/tempo.log     # if installed
+tail -f /usr/local/var/log/leansignal-agent/loki.log
+tail -f /usr/local/var/log/leansignal-agent/tempo.log
 ```
 
 > macOS system daemons live in the `system/` domain and need `sudo`; the labels are
-> `com.leansignal.agent`, `com.leansignal.victoria-metrics`, and — if you added
-> them — `com.leansignal.loki` / `com.leansignal.tempo`.
+> `com.leansignal.agent`, `com.leansignal.victoria-metrics`,
+> `com.leansignal.loki` and `com.leansignal.tempo`.
 
-Local stores: metrics `http://127.0.0.1:8428` · logs `http://127.0.0.1:3100` ·
-traces `http://127.0.0.1:3200` · agent health `http://127.0.0.1:13133`.
+Local metrics store: `http://127.0.0.1:8428` · local log store:
+`http://127.0.0.1:3100` · local trace store: `http://127.0.0.1:3200` · agent
+health: `http://127.0.0.1:13133`.
+
+### Configuration files
+
+Edit the file, then restart **only** that service — the others keep running and
+no data is lost.
+
+| Service | Config | Restart with |
+|---|---|---|
+| agent (collector) | `/usr/local/etc/leansignal-agent/config.yaml` | `sudo launchctl kickstart -k system/com.leansignal.agent` |
+| VictoriaMetrics (metrics) | flags in `/Library/LaunchDaemons/com.leansignal.victoria-metrics.plist` | `sudo launchctl kickstart -k system/com.leansignal.victoria-metrics` |
+| Loki (logs) | `/usr/local/etc/leansignal-agent/loki.yaml` | `sudo launchctl kickstart -k system/com.leansignal.loki` |
+| Tempo (traces) | `/usr/local/etc/leansignal-agent/tempo.yaml` | `sudo launchctl kickstart -k system/com.leansignal.tempo` |
+
+Connection details (tenant, agent key) are **not** in a config file on macOS —
+they live in the agent plist's `EnvironmentVariables`, see
+[Change the agent key or tenant](#change-the-agent-key-or-tenant) below.
+Re-running the installer never clobbers an existing config; it writes
+`config.yaml.new` / `loki.yaml.new` / `tempo.yaml.new` beside it instead.
 
 ### Local retention windows
 
@@ -249,26 +272,29 @@ fill one in only to **pin** that host and bypass resolution for it (there are
 matching `LEANSIGNAL_LOKI_ENDPOINT` / `LEANSIGNAL_TEMPO_ENDPOINT` overrides, and
 `LEANSIGNAL_DOMAIN` pins the region and skips the lookup entirely). Or just
 re-run the installer with `--agent-key` / `--tenant` (it rewrites these and keeps
-your config + VM data).
+your config + all local store data).
 
 ## Upgrading
 
-Upgrade just the agent — VictoriaMetrics and its data are untouched:
+Upgrade just the agent — the local stores and their data are untouched:
 ```bash
 curl -fsSL https://raw.githubusercontent.com/LeanSignal/leansignal-agent/main/scripts/install/upgrade.sh | sudo bash
 ```
-See [Upgrading](upgrading.md) for agent-only vs VM upgrades, data safety, and rollback.
+See [Upgrading](upgrading.md) for agent-only vs VM upgrades, data safety, and
+rollback. Loki and Tempo have no `--with-*` upgrade path — re-run the installer
+to move them to a newer pinned version.
 
 ## Uninstall
 
-Removes both binaries + both LaunchDaemons. Keeps config + VM data unless you pass `--purge`.
+Removes every binary and LaunchDaemon it installed. Keeps config + store data
+unless you pass `--purge`.
 
 **Download, then run** (clearest — `--purge` is a normal script argument):
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/LeanSignal/leansignal-agent/main/scripts/install/uninstall.sh -o uninstall.sh
-sudo bash uninstall.sh            # keep config + VM data
-sudo bash uninstall.sh --purge    # also delete config + VM data
+sudo bash uninstall.sh            # keep config + store data
+sudo bash uninstall.sh --purge    # also delete config + store data
 ```
 
 One-liner equivalent — `--purge` **must** come after `-s --` (that hands it to the
