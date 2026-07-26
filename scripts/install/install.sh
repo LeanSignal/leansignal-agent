@@ -336,6 +336,29 @@ if [ "$INSTALL_TEMPO" -eq 1 ]; then
   fi
 fi
 
+# Co-located store logs -> the agent's logs pipeline. Platform-specific: Linux
+# reads journald, macOS tails the daemons' log files (the journald receiver is
+# Linux-only and would stop the collector booting anywhere else). Installed only
+# in central mode with at least one local store — the edge config has no
+# logs/all pipeline for the overlay to extend.
+STORE_LOGS=0
+if [ "$MODE" = central ] && { [ "$INSTALL_VM" -eq 1 ] || [ "$INSTALL_LOKI" -eq 1 ] || [ "$INSTALL_TEMPO" -eq 1 ]; }; then
+  STORE_LOGS=1
+fi
+if [ "$STORE_LOGS" -eq 1 ] && [ ! -f "$tmp/service-templates/localstore-logs-${PLATFORM}.yaml" ]; then
+  info "WARNING: bundle has no store-log overlay for ${PLATFORM} (need a newer release); skipping"
+  STORE_LOGS=0
+fi
+if [ "$STORE_LOGS" -eq 1 ]; then
+  if [ -f "$CONF_DIR/localstore-logs.yaml" ]; then
+    cp "$tmp/service-templates/localstore-logs-${PLATFORM}.yaml" "$CONF_DIR/localstore-logs.yaml.new"
+    info "existing store-log overlay kept; new template at $CONF_DIR/localstore-logs.yaml.new"
+  else
+    cp "$tmp/service-templates/localstore-logs-${PLATFORM}.yaml" "$CONF_DIR/localstore-logs.yaml"
+    info "installed $CONF_DIR/localstore-logs.yaml (store logs -> local Loki)"
+  fi
+fi
+
 # env file (used directly by systemd; substituted into the plist on macOS)
 umask 077
 if [ "$MODE" = edge ]; then
@@ -375,7 +398,14 @@ if [ "$PLATFORM" = linux ]; then
   if [ "$INSTALL_TEMPO" -eq 1 ]; then
     cp "$tmp/service-templates/leansignal-tempo.service" /etc/systemd/system/
   fi
-  cp "$tmp/service-templates/leansignal-agent.service" /etc/systemd/system/
+  if [ "$STORE_LOGS" -eq 1 ]; then
+    cp "$tmp/service-templates/leansignal-agent.service" /etc/systemd/system/
+  else
+    # No overlay on disk: drop its --config from the single-line ExecStart, or
+    # the agent would refuse to boot.
+    sed -e 's| --config file:/etc/leansignal-agent/localstore-logs\.yaml||' \
+      "$tmp/service-templates/leansignal-agent.service" > /etc/systemd/system/leansignal-agent.service
+  fi
   systemctl daemon-reload
   if [ "$INSTALL_VM" -eq 1 ]; then systemctl enable --now leansignal-victoria-metrics.service; fi
   if [ "$INSTALL_LOKI" -eq 1 ]; then systemctl enable --now leansignal-loki.service; fi
@@ -407,6 +437,15 @@ else
       -e "s|__LEANSIGNAL_DATAPLANE_ENDPOINT__|${DATAPLANE_ENDPOINT}|" \
       -e "s|__CENTRAL_AGENT_GRPC_URL__|${CENTRAL_URL}|" \
       "$tmp/service-templates/com.leansignal.agent.plist" > /Library/LaunchDaemons/com.leansignal.agent.plist
+  if [ "$STORE_LOGS" -eq 0 ]; then
+    # No overlay on disk: drop its --config pair, or the agent would refuse to
+    # boot. awk pairs each --config with the line after it and skips both when
+    # that line is the overlay.
+    awk '/<string>--config<\/string>/ { first=$0; if ((getline second) > 0) { if (second ~ /localstore-logs\.yaml/) next; print first; print second; next } print first; next } { print }' \
+      /Library/LaunchDaemons/com.leansignal.agent.plist > /Library/LaunchDaemons/com.leansignal.agent.plist.tmp
+    mv /Library/LaunchDaemons/com.leansignal.agent.plist.tmp /Library/LaunchDaemons/com.leansignal.agent.plist
+    chmod 600 /Library/LaunchDaemons/com.leansignal.agent.plist
+  fi
   chmod 600 /Library/LaunchDaemons/com.leansignal.agent.plist
   launchctl unload /Library/LaunchDaemons/com.leansignal.agent.plist 2>/dev/null || true
   launchctl load -w /Library/LaunchDaemons/com.leansignal.agent.plist

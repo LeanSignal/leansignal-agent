@@ -6,7 +6,7 @@ Wants=network-online.target
 [Service]
 Type=simple
 EnvironmentFile=/etc/leansignal-agent/agent.env
-ExecStart=/usr/local/bin/leansignal-agent --config /etc/leansignal-agent/config.yaml
+ExecStart=/usr/local/bin/leansignal-agent --config file:/etc/leansignal-agent/config.yaml --config file:/etc/leansignal-agent/localstore-logs.yaml
 Restart=on-failure
 RestartSec=5
 
