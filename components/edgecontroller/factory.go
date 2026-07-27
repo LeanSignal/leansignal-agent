@@ -49,6 +49,8 @@ func createDefaultConfig() component.Config {
 		ReconnectInterval: 5 * time.Second,
 		PingInterval:      30 * time.Second,
 		LocalVMQueryURL:   "http://127.0.0.1:8428",
+		// Config editing from the UI is on unless the host operator opts out.
+		RemoteConfigWrite: true,
 	}
 }
 

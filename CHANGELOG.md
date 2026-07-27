@@ -4,6 +4,66 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and this project follows
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.9.0] - 2026-07-27
+### Added
+- **The agent's collector config can be read and edited from the LeanSignal
+  app.** Open **Agents**, click the agent's name, and pick the **Configuration**
+  tab: it shows the `--config` files this collector was started with, read live
+  off the agent host over the existing gRPC control stream, and lets a tenant
+  admin edit them. No SSH, and no server-side copy of the config — what is shown
+  is what is on disk. Values are returned verbatim, so `${env:...}` and
+  `${leansignal:...}` references stay unexpanded and secrets are never resolved
+  onto the wire.
+
+  Saving is guarded, because a config the collector cannot load takes the agent
+  down and only SSH gets it back:
+  1. the YAML must parse;
+  2. the agent runs its own `validate` subcommand over the **merged** config —
+     every `--config` source, with the candidate substituted for the file being
+     replaced — so overlays and cross-file references are checked exactly as the
+     collector will resolve them. A config that fails is **never written**, and
+     the validator's output comes back to the UI verbatim. A candidate that
+     cannot be validated at all is refused too: applying an unchecked config is
+     the failure mode being defended against.
+  3. the file is replaced by an atomic rename, with the previous contents kept
+     as `<path>.bak`;
+  4. the agent sends itself `SIGHUP`, which the collector answers by reloading
+     in place. The agent disconnects and reconnects within a few seconds — no
+     process restart, no supervisor, and identical behaviour under systemd,
+     docker and Kubernetes. The local stores are untouched, so no data is lost.
+
+  New control-plane messages (wire-compatible additions): `GetConfig` →
+  `ConfigSnapshot` / `ConfigFile`, and `UpdateConfig` gains `path` and
+  `skip_reload`. The commands are driven by lean-api's
+  `GET`/`PUT /api/v1/agent/config/{id}`, so a backend without those endpoints
+  simply never sends them — this release is safe to roll out ahead of it.
+
+- **`remote_config_write` on the `leansignal_edge_controller` extension**
+  (default `true`) is the host-side kill switch. Reading the config in the UI
+  stays available when it is off; only writes are refused. Worth setting to
+  `false` where the LeanSignal tenant admins and the host's operators are not
+  the same people — an OTEL config can be pointed at arbitrary files on the host
+  (a `filelog` receiver) and export them elsewhere, so a remote config write is
+  effectively file-read on that host. A config delivered read-only (a Kubernetes
+  ConfigMap mount) cannot be written whatever this says, and is reported to the
+  UI as non-writable so the editor opens read-only with the reason.
+
+- **`config_file`** on the same extension pins which file a write targets when
+  the request names none. It defaults to the first `--config file:...` on the
+  command line, which is the main config in every layout LeanSignal ships.
+
+### Changed
+- `UpdateConfig` is no longer a stub. It previously logged the command and
+  answered `success: true` without applying anything.
+
+### Notes
+- Windows has no `SIGHUP`, so there the config is validated and written but
+  takes effect on the next service restart; the UI says so in the result.
+- Only `file:` config sources can be read or edited. Other confmap schemes
+  (`env:`, `yaml:`, `leansignal:`, `http:`) are reported to the UI as
+  non-editable rather than being silently omitted, so the picture is never
+  quietly partial.
+
 ## [0.8.0] - 2026-07-26
 ### Added
 - **Logging is now enabled by default for the agent's own components.** The
