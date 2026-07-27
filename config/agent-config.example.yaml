@@ -71,6 +71,21 @@ extensions:
     # (KnownTimeseriesCache.yaml, DiscoveredTimeseriesCache.yaml,
     # DemandTimeseriesCache.yaml). Defaults to /tmp/leansignal-agent.
     # diagnostics_dir: /tmp/leansignal-agent
+    #
+    # Whether tenant admins may EDIT this config from the LeanSignal UI (Agents
+    # page -> agent -> Configuration). Reading it is always allowed for them;
+    # this gates writes, and defaults to true. A saved config is validated
+    # (`leansignal-agent validate`) before it is written, the previous file is
+    # kept as <path>.bak, and the collector reloads in place.
+    #
+    # Set it to false where the config must not change remotely: an OTEL config
+    # can be pointed at arbitrary host files (a filelog receiver) and export
+    # them anywhere, so a remote write is effectively file-read on this host.
+    # remote_config_write: false
+    #
+    # Which file a remote write targets when the request names none. Defaults to
+    # the first `--config file:...` on the command line (this file).
+    # config_file: /etc/leansignal-agent/config.yaml
 
   # Pause-on-limit valves for the tenant ingest exporters (wired via each
   # exporter's `auth` slot below). When the ingest edge rejects a push with 403

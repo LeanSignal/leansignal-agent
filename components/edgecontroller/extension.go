@@ -20,6 +20,7 @@ package leansignaledgecontroller
 import (
 	"context"
 	"crypto/tls"
+	"os"
 	"sync"
 	"time"
 
@@ -84,6 +85,14 @@ type edgeControllerExtension struct {
 	// querySem bounds concurrent local-VM query requests so a burst of UI panels
 	// can't spawn unbounded goroutines or hammer the local VM.
 	querySem chan struct{}
+
+	// configManager reads and writes the collector's own config files for the
+	// UI's agent-config editor.
+	configManager *configManager
+
+	// configMu serialises config writes so two concurrent edits can't interleave
+	// a validation with another edit's rename.
+	configMu sync.Mutex
 }
 
 func newEdgeControllerExtension(logger *zap.Logger, config *Config) *edgeControllerExtension {
@@ -96,6 +105,9 @@ func newEdgeControllerExtension(logger *zap.Logger, config *Config) *edgeControl
 		demandTimeseriesCache:     NewDemandTimeseriesCache(logger),
 		pending:                   make(map[uint64]chan *agentv1.Ack),
 		querySem:                  make(chan struct{}, maxConcurrentQueries),
+		// os.Args is the only place the collector's config paths exist — nothing
+		// hands them to a component.
+		configManager: newConfigManager(logger, config, os.Args[1:]),
 	}
 }
 
@@ -451,10 +463,19 @@ func (e *edgeControllerExtension) handleServerMessage(msg *agentv1.ServerMessage
 			zap.Uint64("demand_hash", d.demandHash),
 		)
 		e.writeCacheFiles()
+	case *agentv1.ServerMessage_GetConfig:
+		e.logger.Info("COMMAND_RECEIVED: get_config")
+		e.sendConfigSnapshot(msg.GetCorrelationId())
 	case *agentv1.ServerMessage_UpdateConfig:
-		// TODO: apply config to the collector.
-		e.logger.Info("COMMAND_RECEIVED: update_config")
-		e.replyCommand(msg.GetCorrelationId(), true, "config received")
+		// Validating a candidate config runs a subprocess, so keep it off the
+		// recvLoop; the goroutine always replies.
+		corrID := msg.GetCorrelationId()
+		req := body.UpdateConfig
+		e.wg.Add(1)
+		go func() {
+			defer e.wg.Done()
+			e.handleUpdateConfig(corrID, req)
+		}()
 	case *agentv1.ServerMessage_QueryRequest:
 		// Run the query off the recvLoop so a slow local-VM call never stalls
 		// control-message processing; the goroutine always replies (success or error).

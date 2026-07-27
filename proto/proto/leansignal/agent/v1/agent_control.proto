@@ -143,8 +143,63 @@ message TraceDemand {
 // GetStatus asks the agent to report its current status (reply via CommandResult).
 message GetStatus {}
 
-// UpdateConfig pushes an opaque config blob to the agent.
-message UpdateConfig { bytes config = 1; }
+// ---- collector config read/write ----
+//
+// The agent's own collector config is editable from the UI: lean-api asks for a
+// snapshot (GetConfig -> ConfigSnapshot) and pushes an edited file back
+// (UpdateConfig -> CommandResult). The agent validates a candidate config with
+// its own `validate` subcommand before writing it, then SIGHUPs itself so the
+// collector reloads in place. correlation_id pairs request and reply.
+
+// GetConfig asks the agent for its current on-disk collector config
+// (reply via ConfigSnapshot).
+message GetConfig {}
+
+// ConfigFile is one config source the collector was started with
+// (one `--config` URI).
+message ConfigFile {
+  // Filesystem path of the config file, or the raw URI for non-file sources.
+  string path = 1;
+  // Current file contents, verbatim and unresolved — `${env:...}` and
+  // `${leansignal:...}` references are NOT expanded, so secrets stay secret.
+  // Empty when the source could not be read or is not a file.
+  bytes content = 2;
+  // Whether this file can be written by the agent process (file and its
+  // directory are writable — false for a read-only ConfigMap mount).
+  bool writable = 3;
+  // Per-file read error; empty on success.
+  string error = 4;
+}
+
+// ConfigSnapshot is the agent's reply to GetConfig: every config source the
+// collector resolved at startup, in `--config` order (later files override
+// earlier ones).
+message ConfigSnapshot {
+  repeated ConfigFile files = 1;
+  // Path of the file UpdateConfig writes when it does not name one.
+  string primary_path = 2;
+  // Whether the agent accepts remote config writes at all
+  // (`remote_config_write` on the edge-controller extension, default true).
+  bool write_enabled = 3;
+  // Snapshot-level failure (e.g. no config sources resolvable); empty on success.
+  string error = 4;
+}
+
+// UpdateConfig pushes an edited config file to the agent. The agent validates
+// it (YAML parse + a full `validate` dry-run of the merged config) and only
+// then writes it atomically, keeping the previous contents as `<path>.bak`,
+// and reloads the collector. Rejected configs are never written; the reason
+// comes back in CommandResult.message.
+message UpdateConfig {
+  // New file contents.
+  bytes config = 1;
+  // Which config file to write. Must be one of the paths from ConfigSnapshot;
+  // empty means ConfigSnapshot.primary_path.
+  string path = 2;
+  // Validate and write, but skip the reload — the config takes effect on the
+  // next agent restart. Default false (write and reload).
+  bool skip_reload = 3;
+}
 
 // GetDiagnosis asks the agent to log its demand-vs-known diagnosis to its own
 // log (fire-and-forget; no reply). Admin-only diagnostic: surfaces which
@@ -205,6 +260,7 @@ message AgentMessage {
     IndexDelete index_delete = 6;
     CommandResult command_result = 7;
     QueryResponse query_response = 8;   // reply to a server-pushed QueryRequest
+    ConfigSnapshot config_snapshot = 9; // reply to a server-pushed GetConfig
   }
 }
 
@@ -221,5 +277,6 @@ message ServerMessage {
     UpdateConfig update_config = 6;
     QueryRequest query_request = 7;     // proxy the UI's VM query to the agent
     GetDiagnosis get_diagnosis = 8;     // ask the agent for demand-vs-known diagnosis
+    GetConfig get_config = 9;           // ask the agent for its on-disk collector config
   }
 }

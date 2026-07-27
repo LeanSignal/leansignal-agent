@@ -138,6 +138,41 @@ no data is lost.
 Re-running the installer never clobbers an existing config; it writes
 `config.yaml.new` / `loki.yaml.new` / `tempo.yaml.new` beside it instead.
 
+#### Editing the collector config from the UI
+
+You don't have to SSH in to change `config.yaml`. In the LeanSignal app, open
+**Agents**, click the agent's name, and pick the **Configuration** tab: it shows
+the collector config files this agent was started with, read live off this host,
+and lets an admin edit them. Only the collector config is reachable this way —
+`agent.env`, `loki.yaml` and `tempo.yaml` are not.
+
+Saving is guarded, because a config the collector can't load takes the agent
+down and only SSH gets it back:
+
+1. the YAML must parse;
+2. the agent runs `leansignal-agent validate` over the **merged** config (all
+   `--config` files, with your edit substituted) — a config that fails is
+   **never written**, and the validator's output comes back to the UI;
+3. the file is replaced atomically and the previous contents are kept as
+   `<path>.bak`;
+4. the agent sends itself `SIGHUP`, which the collector answers by reloading in
+   place. It disconnects and reconnects within a few seconds — no restart, no
+   data loss in the local stores.
+
+If the agent won't come back after an edit, restore the backup and restart:
+
+```bash
+sudo cp /etc/leansignal-agent/config.yaml.bak /etc/leansignal-agent/config.yaml
+sudo systemctl restart leansignal-agent
+```
+
+To turn UI editing off for this host, set `remote_config_write: false` on the
+`leansignal_edge_controller` extension in `config.yaml`. Reading the config in
+the UI stays available; only writes are refused. Worth doing where the
+LeanSignal tenant admins and this host's operators are not the same people — an
+OTEL config can be pointed at arbitrary files on this host and export them
+elsewhere, so a remote config write is effectively file-read here.
+
 ### The stores' own logs
 
 The agent self-monitors, and so do its stores: VictoriaMetrics, Loki and Tempo
