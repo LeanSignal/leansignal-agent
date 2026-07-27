@@ -4,7 +4,7 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and this project follows
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [0.9.0] - 2026-07-27
+## [0.8.1] - 2026-07-27
 ### Added
 - **The agent's collector config can be read and edited from the LeanSignal
   app.** Open **Agents**, click the agent's name, and pick the **Configuration**
