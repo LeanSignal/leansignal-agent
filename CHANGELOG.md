@@ -21,6 +21,23 @@ All notable changes to this project are documented here. The format is based on
 - The agent's `ExecStart` / `ProgramArguments` pass `--config` with an explicit
   `file:` scheme and load the store-log overlay alongside the main config.
 
+### Fixed
+- **The docker-compose and cloud dev configs now use `leansignal_trace_router`.**
+  The shipped `agent-config.example.yaml` moved to the per-rule trace router in
+  0.6.6, but two configs were left behind:
+  - `deploy/docker/agent-config.yaml` still exported tenant spans through
+    `otlphttp/tempo_tenant`, so every trace landed in the one tenant-wide Tempo
+    org. Deleting a trace ingestion rule could not purge its spans, because
+    per-org retention is the only granularity Tempo can delete at.
+  - `config/agent-config.cloud.yaml` already named the router but configured it
+    with `auth`, `retry_on_failure` and `sending_queue` — exporterhelper keys the
+    router's own config does not declare — and carried literal escaped quotes in
+    its `endpoint`. The collector rejects unknown keys, so `make cloud-run` could
+    not start.
+  Both now match the example config: `endpoint` + `headers` + `timeout: 30s`.
+- The docker config's `prometheusremotewrite/dataplane` exporter was missing the
+  agent-key `Authorization` header that the metrics ingress forward-auths.
+
 ## [0.7.0] - 2026-07-25
 ### Added
 - **The co-located log and trace stores now install on macOS.** Loki and Tempo

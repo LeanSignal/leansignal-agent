@@ -165,15 +165,10 @@ exporters:
   # Tenant Tempo via the ingest host - only the demanded resources' spans. The
   # agent key is the bearer token the ingress forward-auth authenticates.
   leansignal_trace_router:
-    endpoint: \"${leansignal:tempo}\"
+    endpoint: "${leansignal:tempo}"
     headers:
       Authorization: "Bearer ${env:LEANSIGNAL_AGENT_KEY}"
-    auth:
-      authenticator: leansignal_ingest_backoff/traces
-    retry_on_failure:
-      enabled: true
-    sending_queue:
-      enabled: true
+    timeout: 30s
 
 connectors:
   forward/demand_filter: {}

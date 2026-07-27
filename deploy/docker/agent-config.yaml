@@ -80,6 +80,8 @@ exporters:
       enabled: false
   prometheusremotewrite/dataplane:
     endpoint: "${env:LEANSIGNAL_DATAPLANE_ENDPOINT}"
+    headers:
+      Authorization: "Bearer ${env:LEANSIGNAL_AGENT_KEY}"
     auth:
       authenticator: leansignal_ingest_backoff/metrics
     resource_to_telemetry_conversion:
@@ -106,18 +108,14 @@ exporters:
     traces_endpoint: http://tempo:4318/v1/traces
     retry_on_failure:
       enabled: true
-  # Tenant Tempo - only the demanded resources' spans; the agent key is the
-  # bearer token.
-  otlphttp/tempo_tenant:
-    traces_endpoint: "${env:LEANSIGNAL_TEMPO_ENDPOINT}/v1/traces"
+  # Tenant Tempo - only the demanded resources' spans, one org per trace
+  # ingestion rule (the router pushes to /v1/traces/r/<filter-id>); the agent
+  # key is the bearer token.
+  leansignal_trace_router:
+    endpoint: "${env:LEANSIGNAL_TEMPO_ENDPOINT}"
     headers:
       Authorization: "Bearer ${env:LEANSIGNAL_AGENT_KEY}"
-    auth:
-      authenticator: leansignal_ingest_backoff/traces
-    retry_on_failure:
-      enabled: true
-    sending_queue:
-      enabled: true
+    timeout: 30s
 
 connectors:
   forward/demand_filter: {}
