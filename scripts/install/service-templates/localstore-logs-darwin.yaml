@@ -1,0 +1,69 @@
+# Co-located store logs -> the agent's own logs pipeline (macOS).
+#
+# Installed by scripts/install/install.sh as
+# /usr/local/etc/leansignal-agent/localstore-logs.yaml and loaded as a SECOND
+# --config alongside config.yaml; the collector merges them. Delete this file
+# (and the matching --config argument in the agent's LaunchDaemon) to turn the
+# feature off — config.yaml is untouched either way.
+#
+# On macOS each store is a LaunchDaemon whose stdout/stderr the plist redirects
+# to a file, so filelog tails those files. Linux uses journald instead and gets
+# localstore-logs-linux.yaml.
+#
+# The agent's OWN logs are not here: service.telemetry already pushes them over
+# OTLP to the agent's loopback receiver, so they reach the same pipeline as
+# service.name=leansignal-agent.
+#
+# One receiver per store so each gets its own service.name, which becomes the
+# Loki stream label `service_name` — that is what a demand selector matches on.
+# (The stores' *metrics* arrive under the shorter scrape job names
+# leansignal-avm / leansignal-aloki / leansignal-atempo.)
+
+# Offsets are persisted, which is what makes restarts lossless: `start_at` only
+# applies when NO offset is stored yet (first run, or a brand-new file), so every
+# later restart resumes exactly where it left off — including whatever a store
+# logged while the agent was down, the window that matters when one fails to
+# start.
+#
+# `start_at: end` on that first run is deliberate: the local Loki rejects samples
+# older than an hour (reject_old_samples_max_age), so replaying pre-existing
+# history would just generate rejections.
+
+extensions:
+  file_storage:
+    directory: /usr/local/var/leansignal-agent/logs-offsets
+    create_directory: true
+
+receivers:
+  filelog/localstore_vm:
+    include: [/usr/local/var/log/leansignal-agent/victoria-metrics.log]
+    start_at: end
+    storage: file_storage
+    resource:
+      service.name: leansignal-victoria-metrics
+
+  filelog/localstore_loki:
+    include: [/usr/local/var/log/leansignal-agent/loki.log]
+    start_at: end
+    storage: file_storage
+    resource:
+      service.name: leansignal-loki
+
+  filelog/localstore_tempo:
+    include: [/usr/local/var/log/leansignal-agent/tempo.log]
+    start_at: end
+    storage: file_storage
+    resource:
+      service.name: leansignal-tempo
+
+service:
+  # Arrays REPLACE: restate the base extension list or the control channel,
+  # health check and ingest-backoff valves would all be dropped.
+  extensions: [health_check, leansignal_edge_controller, leansignal_ingest_backoff/metrics, leansignal_ingest_backoff/logs, leansignal_ingest_backoff/traces, file_storage]
+  pipelines:
+    # Arrays REPLACE rather than merge, so this restates the base receiver list
+    # from config.yaml. Keep the first two in sync if config.yaml ever changes
+    # them. processors/exporters are omitted on purpose — omitted keys are
+    # inherited from the base config unchanged.
+    logs/all:
+      receivers: [otlp, loki, filelog/localstore_vm, filelog/localstore_loki, filelog/localstore_tempo]

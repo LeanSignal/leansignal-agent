@@ -8,7 +8,9 @@
     <array>
         <string>/usr/local/bin/leansignal-agent</string>
         <string>--config</string>
-        <string>/usr/local/etc/leansignal-agent/config.yaml</string>
+        <string>file:/usr/local/etc/leansignal-agent/config.yaml</string>
+        <string>--config</string>
+        <string>file:/usr/local/etc/leansignal-agent/localstore-logs.yaml</string>
     </array>
     <key>EnvironmentVariables</key>
     <dict>
