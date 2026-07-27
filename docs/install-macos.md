@@ -127,6 +127,25 @@ other two signals). **`allowed=0` on a fresh agent is normal and correct** — t
 filters are fail-closed, so nothing is forwarded until a dashboard or alert in
 LeanSignal demands it. Metrics keep landing in the local store either way.
 
+### The stores' own logs
+
+The agent self-monitors, and so do its stores: VictoriaMetrics, Loki and Tempo
+logs are collected into the same logs pipeline and land in the local Loki as
+`leansignal-victoria-metrics`, `leansignal-loki` and `leansignal-tempo` (the
+agent's own arrive as `leansignal-agent`). Like all telemetry they stay local
+until a dashboard or alert demands them.
+
+```bash
+curl -s --get 'http://127.0.0.1:3100/loki/api/v1/query_range' \
+  --data-urlencode 'query={service_name="leansignal-loki"}' --data-urlencode 'limit=5'
+```
+
+This is wired by a small overlay config, `/usr/local/etc/leansignal-agent/localstore-logs.yaml`, loaded as a
+second `--config` next to `config.yaml`. Linux reads journald filtered to the
+three units; macOS tails the daemons' log files. To turn it off, delete that file
+**and** its `--config` argument from the agent's LaunchDaemon plist — leaving one
+without the other stops the agent booting.
+
 ## How logs and traces are stored
 
 The installer sets up **all three** local stores on macOS, so there is nothing

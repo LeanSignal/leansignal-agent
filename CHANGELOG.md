@@ -4,6 +4,23 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and this project follows
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.8.0] - 2026-07-26
+### Added
+- **Logging is now enabled by default for the agent's own components.** The
+  co-located VictoriaMetrics, Loki and Tempo feed the agent's logs pipeline and
+  land in the local log store as `leansignal-victoria-metrics`,
+  `leansignal-loki` and `leansignal-tempo` — the agent itself already arrived as
+  `leansignal-agent`. As with all telemetry, they stay local until demanded.
+  Linux reads journald, macOS tails the daemons' log files; Windows and
+  Kubernetes are unchanged. The installer wires this through a
+  `localstore-logs.yaml` overlay beside `config.yaml`, with offsets persisted so
+  restarts lose nothing; remove the overlay and its `--config` argument to opt
+  out.
+
+### Changed
+- The agent's `ExecStart` / `ProgramArguments` pass `--config` with an explicit
+  `file:` scheme and load the store-log overlay alongside the main config.
+
 ## [0.7.0] - 2026-07-25
 ### Added
 - **The co-located log and trace stores now install on macOS.** Loki and Tempo
