@@ -293,6 +293,12 @@ func TestApplyWritesValidatedConfigAndBacksUpThePrevious(t *testing.T) {
 		t.Errorf("message does not name the file: %q", msg)
 	}
 
+	// The operator is told what actually happens — the agent restarts to pick
+	// the config up. It does not reload in place; see restartForConfig.
+	if !strings.Contains(msg, "restarting") {
+		t.Errorf("message should say the agent is restarting, got %q", msg)
+	}
+
 	got, err := os.ReadFile(primary)
 	if err != nil {
 		t.Fatalf("read back: %v", err)

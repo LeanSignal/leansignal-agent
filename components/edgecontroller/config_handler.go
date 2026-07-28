@@ -82,26 +82,28 @@ func (e *edgeControllerExtension) handleUpdateConfig(correlationID uint64, req *
 		return
 	}
 
-	// Reload after the reply has had time to reach lean-api: the reload shuts
-	// every component down, this extension and its stream included.
-	e.wg.Add(1)
-
+	// Restart once the reply has had time to reach lean-api — the process is
+	// about to end, taking this extension and its control stream with it. The
+	// same pause lets the batch processors hand off their current batch.
+	//
+	// Deliberately NOT tracked by e.wg. On the path that matters this goroutine
+	// never finishes — it ends the process — so a deferred Done() would never
+	// run, and listing it among the things Shutdown waits for would describe a
+	// wait that can never be satisfied. Cancelling rootCtx still releases it on
+	// the other path, which is the only one where finishing means anything.
 	go func() {
-		defer e.wg.Done()
-
 		select {
 		case <-time.After(reloadDelay):
 		case <-e.rootCtx.Done():
+			// Already shutting down for another reason; the config is on disk
+			// and will be picked up when the process comes back.
 			return
 		}
 
+		// Does not return: it ends the process for the supervisor to restart.
 		if err := e.configManager.Reload(); err != nil {
-			e.logger.Error("Config written but the collector could not be reloaded; it will apply on the next restart",
+			e.logger.Error("Config written but the agent could not be restarted; it will apply on the next restart",
 				zap.Error(err))
-
-			return
 		}
-
-		e.logger.Info("Signalled the collector to reload its config")
 	}()
 }

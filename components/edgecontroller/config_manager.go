@@ -68,9 +68,18 @@ const (
 	validateTimeout = 30 * time.Second
 
 	// reloadDelay is how long to wait after answering an UpdateConfig before
-	// signalling the reload, so the CommandResult reaches lean-api before the
-	// control stream is torn down and rebuilt.
-	reloadDelay = time.Second
+	// restarting, so the CommandResult reaches lean-api before the control
+	// stream goes away — and so the batch processors get a beat to flush their
+	// current batch (they run on a 1s timeout) before the process ends.
+	reloadDelay = 2 * time.Second
+
+	// exitCodeConfigApplied is the status the process exits with once a new
+	// config is on disk, to be restarted by whatever supervises it (systemd,
+	// Kubernetes, docker). It is deliberately NON-ZERO so the shipped systemd
+	// unit's `Restart=on-failure` restarts it, and deliberately not 1 so an
+	// intentional config restart is distinguishable from a genuine crash in
+	// `systemctl status` / `kubectl describe`.
+	exitCodeConfigApplied = 75
 
 	// backupSuffix is appended to a config file's path to store the contents it
 	// had before the most recent remote write.
@@ -103,9 +112,40 @@ type configManager struct {
 	// Overridden in tests.
 	executable string
 
-	// reloadFn signals the running collector to reload its config. Overridden in
-	// tests so they never actually SIGHUP the test binary.
+	// reloadFn puts the newly written config into effect. In production it ends
+	// the process (see restartForConfig) and never returns; tests override it so
+	// they never take the test binary down with them.
 	reloadFn func() error
+}
+
+// restartForConfig ends the process so its supervisor restarts it with the
+// config that was just written.
+//
+// This deliberately does NOT ask the collector to reload in place. otelcol
+// answers SIGHUP by shutting the old service down and rebuilding it, which
+// sounds ideal — but the agent's own logs are exported over OTLP to its own
+// loopback receiver (service.telemetry, on by default since 0.6.2), and that
+// receiver is torn down early in the shutdown. Flushing the logger then retries
+// against a dead endpoint for ~20s, fails, and otelcol treats a failed reload as
+// fatal and exits anyway. So the in-place reload could never complete on a
+// self-monitoring agent: it just made the restart slow and made it look like a
+// crash. Exiting on purpose is honest, immediate, and behaves identically on
+// systemd, Kubernetes and docker — including Windows, which has no SIGHUP and
+// therefore could not reload at all before.
+//
+// Anything the pipelines still hold is lost, which is why the caller waits
+// reloadDelay first: the batch processors run on a 1s timeout, so a beat is
+// enough for them to hand off what they have.
+func restartForConfig(logger *zap.Logger) error {
+	logger.Warn("restarting to reload the config",
+		zap.Int("exit_code", exitCodeConfigApplied))
+
+	// Best-effort: push the line above out before the process ends.
+	_ = logger.Sync()
+
+	os.Exit(exitCodeConfigApplied)
+
+	return nil // unreachable; keeps the func signature honest for the test seam
 }
 
 // newConfigManager builds a manager from the process command line. args is
@@ -140,7 +180,7 @@ func newConfigManager(logger *zap.Logger, cfg *Config, args []string) *configMan
 		primary:      primary,
 		writeEnabled: cfg.RemoteConfigWrite,
 		executable:   exe,
-		reloadFn:     reloadCollector,
+		reloadFn:     func() error { return restartForConfig(logger) },
 	}
 }
 
@@ -346,7 +386,7 @@ func (m *configManager) Apply(ctx context.Context, path string, content []byte, 
 			path, path+backupSuffix), false, nil
 	}
 
-	return fmt.Sprintf("config validated and written to %s (previous kept as %s); reloading the collector",
+	return fmt.Sprintf("config validated and written to %s (previous kept as %s); restarting to reload the config",
 		path, path+backupSuffix), true, nil
 }
 
