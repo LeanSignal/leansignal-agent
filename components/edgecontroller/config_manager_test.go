@@ -188,6 +188,53 @@ func TestSnapshotReadsEveryFileSource(t *testing.T) {
 	}
 }
 
+// A config the agent does not own is still replaceable when it sits in a
+// directory the agent can write: the write is a rename, not an in-place edit.
+// This is exactly the Helm chart's writable mode, where a root-run init
+// container seeds a root-owned 0644 config into a group-writable volume.
+func TestSnapshotWritableWhenOnlyTheDirectoryIsWritable(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("running as root: permission bits do not constrain the probe")
+	}
+
+	m, primary := newTestManager(t, 0)
+
+	// Read-only file, writable directory.
+	if err := os.Chmod(primary, 0o444); err != nil {
+		t.Fatalf("chmod: %v", err)
+	}
+
+	if f, err := os.OpenFile(primary, os.O_WRONLY, 0); err == nil {
+		_ = f.Close()
+		t.Skip("filesystem ignores the read-only bit for the owner")
+	}
+
+	if !m.Snapshot().GetFiles()[0].GetWritable() {
+		t.Error("writable = false for a read-only file in a writable directory")
+	}
+}
+
+// The directory is what decides it — a read-only one (the ConfigMap-mount case,
+// which surfaces as EROFS) must report false.
+func TestSnapshotNotWritableWhenTheDirectoryIsReadOnly(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("running as root: permission bits do not constrain the probe")
+	}
+
+	m, primary := newTestManager(t, 0)
+	dir := filepath.Dir(primary)
+
+	if err := os.Chmod(dir, 0o555); err != nil {
+		t.Fatalf("chmod: %v", err)
+	}
+
+	t.Cleanup(func() { _ = os.Chmod(dir, 0o755) }) // so t.TempDir cleanup works
+
+	if m.Snapshot().GetFiles()[0].GetWritable() {
+		t.Error("writable = true for a file in a read-only directory")
+	}
+}
+
 func TestSnapshotReportsMissingFile(t *testing.T) {
 	m, primary := newTestManager(t, 0)
 
