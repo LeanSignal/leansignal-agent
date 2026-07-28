@@ -4,6 +4,27 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and this project follows
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.8.6] - 2026-07-28
+### Fixed
+- **The restart that applies a config is now visible in the agent's own logs.**
+  0.8.5 logged `restarting to reload the config` one instruction before
+  `os.Exit`, so the line never survived the trip the agent's logs actually take —
+  `service.telemetry` → the loopback OTLP receiver → `logs/all` → batch → the
+  local store. It reached stderr (`kubectl logs`, journald) and nothing else, so
+  an operator who saved a config in the app and then looked at that agent's logs
+  *in the app* saw no sign of the restart at all.
+
+  The announcement now happens **before** the wait rather than after it, giving
+  it the whole delay to make that trip, and `reloadDelay` goes 2s → 4s because
+  the path is two batched hops (the telemetry log processor, then the `logs/all`
+  batch processor, ~1s each) and 2s sat exactly on the boundary. Applying a
+  config therefore takes ~4s instead of ~2s — still a fraction of the ~20s the
+  pre-0.8.5 in-place reload cost.
+
+  The line carries `in` (how long until the exit) and `exit_code` (75), and if
+  the agent happens to be shutting down for another reason during that window it
+  now says so instead of leaving the announcement as the last word.
+
 ## [0.8.5] - 2026-07-28
 ### Fixed
 - **Applying a config no longer hangs for ~20 seconds and then looks like a

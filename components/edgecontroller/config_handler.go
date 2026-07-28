@@ -82,6 +82,16 @@ func (e *edgeControllerExtension) handleUpdateConfig(correlationID uint64, req *
 		return
 	}
 
+	// Announce the restart BEFORE waiting for it, so the line has the whole
+	// delay to travel service.telemetry -> the loopback OTLP receiver ->
+	// logs/all -> batch -> the local store. Logged just before os.Exit instead
+	// (as it was in 0.8.5) it never survived that trip: the restart was visible
+	// on stderr but not in the product's own logs, which is where an operator
+	// looks after asking the UI to save a config.
+	e.logger.Warn("restarting to reload the config",
+		zap.Duration("in", reloadDelay),
+		zap.Int("exit_code", exitCodeConfigApplied))
+
 	// Restart once the reply has had time to reach lean-api — the process is
 	// about to end, taking this extension and its control stream with it. The
 	// same pause lets the batch processors hand off their current batch.
@@ -95,8 +105,11 @@ func (e *edgeControllerExtension) handleUpdateConfig(correlationID uint64, req *
 		select {
 		case <-time.After(reloadDelay):
 		case <-e.rootCtx.Done():
-			// Already shutting down for another reason; the config is on disk
-			// and will be picked up when the process comes back.
+			// Already shutting down for another reason, so the announcement
+			// above would otherwise be the last word on it. The config is on
+			// disk either way and applies when the process comes back.
+			e.logger.Info("shutting down before the config restart; the new config applies on the next start")
+
 			return
 		}
 

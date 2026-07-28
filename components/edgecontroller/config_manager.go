@@ -68,10 +68,14 @@ const (
 	validateTimeout = 30 * time.Second
 
 	// reloadDelay is how long to wait after answering an UpdateConfig before
-	// restarting, so the CommandResult reaches lean-api before the control
-	// stream goes away — and so the batch processors get a beat to flush their
-	// current batch (they run on a 1s timeout) before the process ends.
-	reloadDelay = 2 * time.Second
+	// restarting. It covers three things, and the longest one sets it:
+	//   - the CommandResult reaching lean-api before the control stream goes;
+	//   - the batch processors (1s timeout) handing off their current batch;
+	//   - the "restarting to reload the config" line reaching the local log
+	//     store, which is two batched hops: the telemetry log processor
+	//     (~1s) and then the logs/all batch processor (1s). 2s was exactly on
+	//     that boundary and the line usually lost the race, so give it margin.
+	reloadDelay = 4 * time.Second
 
 	// exitCodeConfigApplied is the status the process exits with once a new
 	// config is on disk, to be restarted by whatever supervises it (systemd,
@@ -136,11 +140,16 @@ type configManager struct {
 // Anything the pipelines still hold is lost, which is why the caller waits
 // reloadDelay first: the batch processors run on a 1s timeout, so a beat is
 // enough for them to hand off what they have.
+//
+// The caller also announces the restart BEFORE that wait — see
+// handleUpdateConfig. Logging it here instead would put the line one instruction
+// ahead of os.Exit, and the agent's own logs travel service.telemetry -> the
+// loopback OTLP receiver -> logs/all -> batch -> the local store, so it would
+// never survive the trip and the restart would be invisible in the product's own
+// logs (it was, until 0.8.6 — only stderr had it).
 func restartForConfig(logger *zap.Logger) error {
-	logger.Warn("restarting to reload the config",
-		zap.Int("exit_code", exitCodeConfigApplied))
-
-	// Best-effort: push the line above out before the process ends.
+	// Best-effort flush of anything zap still buffers; the OTLP hop above is
+	// what the caller's delay covers.
 	_ = logger.Sync()
 
 	os.Exit(exitCodeConfigApplied)
