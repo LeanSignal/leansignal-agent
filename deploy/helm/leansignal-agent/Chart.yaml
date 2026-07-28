@@ -4,9 +4,9 @@ description: LeanSignal Agent - an OpenTelemetry Collector distribution that ind
 type: application
 # Chart version - bump on chart changes. (The release workflow syncs this and
 # appVersion to the git tag; 0.6.3 is the next release carrying this chart change.)
-version: 0.8.4
+version: 0.8.5
 # Version of the agent app this chart deploys by default.
-appVersion: "0.8.4"
+appVersion: "0.8.5"
 keywords:
   - observability
   - opentelemetry

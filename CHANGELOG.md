@@ -4,6 +4,38 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and this project follows
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.8.5] - 2026-07-28
+### Fixed
+- **Applying a config no longer hangs for ~20 seconds and then looks like a
+  crash.** Saving a config asked the collector to reload in place via `SIGHUP`.
+  That can never succeed on a self-monitoring agent: `service.telemetry` exports
+  the agent's own logs over OTLP to its **own loopback receiver**, and the reload
+  tears that receiver down early. Flushing the logger then retried against a dead
+  endpoint for ~20s, failed, and the collector treats a failed reload as fatal —
+  so it exited anyway, with status **1**, indistinguishable from a genuine crash
+  in `systemctl status` / `kubectl describe`. The config did apply, but only via
+  that ugly path, and an operator running `Restart=no` was left with a dead agent.
+
+  Applying a config is now an explicit restart. The agent logs
+  **`restarting to reload the config`** and exits **75** — non-zero so the shipped
+  systemd unit's `Restart=on-failure` picks it up, and deliberately not 1 so an
+  intentional config restart is greppable and distinct from a crash. It is back
+  in a couple of seconds.
+
+  Consequences worth knowing:
+  - **Windows can apply a config for the first time.** It has no `SIGHUP`, so
+    until now the config was written and only took effect on the next manual
+    service restart. Every platform now behaves identically.
+  - Whatever the pipelines still hold at that moment is lost — at most a second,
+    since the batch processors flush on a 1s timer and the agent waits 2s before
+    exiting (the same pause that gets the result back to the UI first). The
+    co-located stores keep everything they already received.
+  - Docker users need a restart policy (`--restart unless-stopped`); systemd and
+    Kubernetes already restart it.
+
+  The docs said "reloads in place, no restart" throughout. They were wrong, and
+  are corrected.
+
 ## [0.8.4] - 2026-07-28
 ### Fixed
 - **The chart now installs on a cluster enforcing the `restricted` Pod Security

@@ -155,9 +155,22 @@ down and only SSH gets it back:
    **never written**, and the validator's output comes back to the UI;
 3. the file is replaced atomically and the previous contents are kept as
    `<path>.bak`;
-4. the agent sends itself `SIGHUP`, which the collector answers by reloading in
-   place. It disconnects and reconnects within a few seconds — no restart, no
-   data loss in the local stores.
+4. the agent **restarts itself** to pick the new config up, logging
+   `restarting to reload the config` and exiting with status **75**. systemd's
+   `Restart=on-failure` brings it straight back — it is off for a couple of
+   seconds and reconnects on its own.
+
+The restart is deliberate rather than an in-place reload. The collector can
+reload on `SIGHUP`, but the agent exports its own logs over OTLP to its own
+receiver (`service.telemetry`, on by default), and that receiver is torn down
+early in the reload — so flushing the logger retries against a dead endpoint for
+~20s, fails, and the collector treats a failed reload as fatal and exits anyway.
+Restarting on purpose is immediate, behaves the same on every platform, and
+shows up as exit **75** instead of looking like a crash.
+
+Whatever is still buffered in the pipelines at that moment is lost — at most a
+second, since the batch processors flush on a 1s timer and the agent waits before
+exiting. The co-located stores keep everything they already received.
 
 If the agent won't come back after an edit, restore the backup and restart:
 

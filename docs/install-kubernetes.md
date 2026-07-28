@@ -100,8 +100,11 @@ config:
 The chart then provisions a small **PVC** and an init container seeds it **once**
 from the ConfigMap on first start. From then on the config is editable from the
 app, from `leanctl`, or through the `agent_config_update` MCP tool — and a saved
-config is validated, backed up as `config.yaml.bak`, and applied by an in-place
-reload, exactly as on a host install.
+config is validated, backed up as `config.yaml.bak`, and applied by the agent
+**restarting itself** — it logs `restarting to reload the config`, exits with
+status 75, and the kubelet brings the container straight back with the new
+config. Expect a couple of seconds of collection gap; the co-located stores keep
+everything they already received.
 
 **The trade-off, stated plainly:** after that first boot the volume is the source
 of truth, so config changes made through `helm upgrade` **no longer reach the
