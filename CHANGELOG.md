@@ -4,6 +4,29 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and this project follows
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.8.3] - 2026-07-28
+### Fixed
+- **A config the agent does not own is no longer reported as read-only.** The
+  writability probe opened the config file with `O_WRONLY`, which is stricter
+  than what writing it actually requires: a config is replaced by staging a temp
+  file alongside it and renaming over the target, and `rename` needs write
+  permission on the **directory** — it never opens the target for writing.
+
+  This bit the chart's new `config.writable` mode immediately. The seed init
+  container runs as root, so it leaves a root-owned `0644` config in a volume
+  the `fsGroup` makes group-writable — a file the agent can replace perfectly
+  well, but cannot open for writing. The app therefore showed the editor
+  read-only on a deployment that was explicitly configured to be editable.
+
+  The probe now tests the directory, which is what the write path uses. A
+  read-only ConfigMap mount still reports non-writable (the probe fails with
+  `EROFS`, same as before).
+
+### Changed
+- The chart's seed init container also sets the group write bit on what it
+  copies. Not required after the fix above — the rename path never needed it —
+  but it keeps the volume's permissions unsurprising to anyone reading them.
+
 ## [0.8.2] - 2026-07-28
 ### Added
 - **`config.writable` — edit the collector config from the LeanSignal app on

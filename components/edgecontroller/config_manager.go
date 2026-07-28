@@ -252,17 +252,19 @@ func readConfigFile(path string) ([]byte, error) {
 	return os.ReadFile(path) //nolint:gosec // path comes from this process's own --config flags
 }
 
-// isWritable reports whether the agent process could replace this file: it must
-// be able to write the file itself and to create the temp file in its directory
-// that the atomic rename needs. A read-only ConfigMap mount fails the first
-// check with EROFS.
+// isWritable reports whether the agent process could replace this file.
+//
+// What matters is the DIRECTORY, not the file's own mode: a write stages a temp
+// file alongside the target and renames it into place, and rename needs write
+// permission on the directory — it never opens the target for writing. Probing
+// the file with O_WRONLY was too strict and produced false negatives wherever
+// the config is owned by someone else but sits in a directory the agent owns:
+// the Helm chart's writable mode seeds the volume with a root-run init
+// container, leaving a root-owned 0644 config in a group-writable directory,
+// which the agent can replace perfectly well.
+//
+// A read-only ConfigMap mount still reports false — the probe fails with EROFS.
 func isWritable(path string) bool {
-	f, err := os.OpenFile(path, os.O_WRONLY, 0)
-	if err != nil {
-		return false
-	}
-	_ = f.Close()
-
 	probe, err := os.CreateTemp(filepath.Dir(path), ".leansignal-write-probe-*")
 	if err != nil {
 		return false
