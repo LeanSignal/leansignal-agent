@@ -36,12 +36,18 @@ spec:
       imagePullSecrets:
         {{- toYaml . | nindent 8 }}
       {{- end }}
+      {{- /* Pod security context, plus the fsGroup the writable config volume
+             needs — fsGroup is what makes that volume group-owned and
+             group-writable, so nothing in the pod has to run as root. */}}
+      {{- $podSec := deepCopy (.Values.podSecurityContext | default dict) }}
       {{- if .Values.config.writable }}
-      # The agent image runs as nonroot (distroless :nonroot, uid 65532); without
-      # a matching fsGroup the freshly provisioned volume is root-owned and the
-      # agent cannot write its own config.
+      {{- $_ := set $podSec "fsGroup" .Values.config.fsGroup }}
+      {{- end }}
+      {{- with $podSec }}
       securityContext:
-        fsGroup: {{ .Values.config.fsGroup }}
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- if .Values.config.writable }}
       initContainers:
         # Seed the config volume from the ConfigMap ONCE. If a config is already
         # there it is left alone — that is the whole point of the writable mode:
@@ -49,10 +55,22 @@ spec:
         # Re-seed by deleting the file (or the PVC) and restarting the pod.
         #
         # This needs a shell, which the distroless agent image does not have,
-        # hence the separate seed image.
+        # hence the separate seed image. Override config.seedImage to pull it
+        # from your own registry (mirrored or air-gapped installs).
         - name: seed-config
           image: {{ .Values.config.seedImage | quote }}
           imagePullPolicy: IfNotPresent
+          # Runs as the AGENT's uid, not root: the seeded config ends up owned by
+          # the agent, and the pod stays admissible under a `restricted` Pod
+          # Security Admission namespace, which forbids root outright.
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: {{ .Values.config.fsGroup }}
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: [ALL]
+            seccompProfile:
+              type: RuntimeDefault
           command:
             - /bin/sh
             - -c
@@ -66,12 +84,6 @@ spec:
               # The glob skips the ConfigMap's ..data/..timestamp entries; -L
               # dereferences the per-key symlinks into real files.
               cp -L /seed/* /etc/leansignal-agent/
-              # This container runs as root, so the copies land root-owned. The
-              # agent replaces a config by renaming over it (a directory
-              # operation, which fsGroup already permits), so this is not
-              # required — but leaving the group write bit set keeps the volume
-              # readable at a glance and tolerant of other edit mechanisms.
-              chmod g+w /etc/leansignal-agent/*
           volumeMounts:
             - name: config
               mountPath: /etc/leansignal-agent
@@ -83,6 +95,10 @@ spec:
         - name: agent
           image: {{ include "leansignal-agent.image" . | quote }}
           imagePullPolicy: {{ .Values.image.pullPolicy }}
+          {{- with .Values.securityContext }}
+          securityContext:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
           args: ["--config", "/etc/leansignal-agent/config.yaml"]
           ports:
             - { name: otlp-grpc, containerPort: 4317 }
