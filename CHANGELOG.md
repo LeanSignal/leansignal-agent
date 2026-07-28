@@ -4,6 +4,46 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and this project follows
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.8.2] - 2026-07-28
+### Added
+- **`config.writable` — edit the collector config from the LeanSignal app on
+  Kubernetes.** Kubernetes mounts a ConfigMap volume **read-only** and no flag
+  changes that, so a chart-installed agent reported its config as non-writable
+  and the app's Configuration tab opened read-only (reading always worked). Set
+
+  ```yaml
+  config:
+    writable: true
+  ```
+
+  and the chart provisions a small PVC instead, seeded **once** from the
+  ConfigMap by an init container on first start. From then on the config is
+  editable from the app, from `leanctl`, or through the `agent_config_update`
+  MCP tool — validated before it is written, kept as `config.yaml.bak`, and
+  applied by the same in-place reload as a host install. The agent needed no
+  change: it probes the filesystem, so it reports the file as writable by
+  itself.
+
+  Three details the mode carries with it:
+  - the Deployment switches to the **`Recreate`** strategy, because a
+    ReadWriteOnce claim cannot be attached to the outgoing and incoming pod at
+    once — a rolling update would deadlock;
+  - a **`fsGroup`** (65532, matching the distroless `:nonroot` image) is applied
+    so the agent owns the provisioned volume and can write to it;
+  - the `checksum/config` pod annotation is **dropped**, since the ConfigMap is
+    then only a first-boot seed and re-rolling would imply an update the running
+    agent does not actually pick up.
+
+  **The trade-off, stated plainly:** after the first boot the volume is the
+  source of truth, so config changes made through `helm upgrade` no longer reach
+  the agent. Delete `config.yaml` from the volume (or the PVC) and restart to
+  hand control back to the chart; `helm uninstall` deletes the PVC and any edits
+  with it.
+
+  Default is `false` — unchanged behaviour, and the right setting under GitOps
+  (ArgoCD, Flux), where the repository should stay the source of truth and an
+  edit made in the app would be reverted by the next sync anyway.
+
 ## [0.8.1] - 2026-07-27
 ### Added
 - **The agent's collector config can be read and edited from the LeanSignal

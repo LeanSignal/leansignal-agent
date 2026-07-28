@@ -58,6 +58,42 @@ leansignal:
 config:
   existingConfigMap: ""
 
+  # Make the collector config editable at runtime — from the LeanSignal app
+  # (Agents -> the agent -> Configuration) or the agent_config_update MCP tool.
+  #
+  # A ConfigMap volume is mounted READ-ONLY by the kubelet and no flag changes
+  # that, so editing means not mounting a ConfigMap at all. With this on, the
+  # config lives in a small PVC instead, seeded ONCE from the ConfigMap by an
+  # init container on first start.
+  #
+  # The trade-off is real and worth stating plainly: after that first boot the
+  # PVC is the source of truth, so changes to the config through `helm upgrade`
+  # NO LONGER REACH THE AGENT. To hand control back to the chart, delete
+  # config.yaml from the volume (or the whole PVC) and restart the pod — it will
+  # re-seed. Uninstalling the release deletes the PVC and any edits with it.
+  #
+  # Leave this false when the config is managed by GitOps (ArgoCD, Flux): there
+  # the repo should stay the source of truth, an edit would be reverted by the
+  # next sync anyway, and the agent honestly reports the file as non-writable so
+  # the UI opens read-only with the reason.
+  writable: false
+
+  # Size of that PVC. It holds a couple of small YAML files; most provisioners
+  # round up to their own minimum regardless.
+  size: 16Mi
+
+  # StorageClass for the PVC. Empty uses the cluster default.
+  storageClass: ""
+
+  # fsGroup applied to the pod when the config is writable, so the nonroot agent
+  # (distroless :nonroot, uid 65532) owns the provisioned volume. Only change
+  # this if you also override the image with one running as a different user.
+  fsGroup: 65532
+
+  # Image for the one-shot init container that seeds the PVC. The agent image is
+  # distroless and has no shell, so it cannot do the copy itself.
+  seedImage: busybox:1.37.0
+
 # Central, long-retention store that receives only demanded metrics
 # (Prometheus remote-write URL).
 dataplane:

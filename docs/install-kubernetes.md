@@ -81,6 +81,46 @@ The chart then renders no ConfigMap and mounts yours instead. (With a managed
 ConfigMap the Deployment's `checksum/config` annotation rolls the pod on config
 changes; with an external one you trigger the rollout yourself.)
 
+### Editing the config from the LeanSignal app
+
+By default the config **cannot** be edited from the app (Agents → the agent →
+**Configuration**): Kubernetes mounts a ConfigMap volume **read-only**, and no
+flag changes that, so the agent reports the file as non-writable and the editor
+opens read-only. Reading always works.
+
+To make it editable, give the config its own volume instead:
+
+```yaml
+config:
+  writable: true
+  # size: 16Mi          # the PVC is tiny; most provisioners round up anyway
+  # storageClass: ""    # empty = cluster default
+```
+
+The chart then provisions a small **PVC** and an init container seeds it **once**
+from the ConfigMap on first start. From then on the config is editable from the
+app, from `leanctl`, or through the `agent_config_update` MCP tool — and a saved
+config is validated, backed up as `config.yaml.bak`, and applied by an in-place
+reload, exactly as on a host install.
+
+**The trade-off, stated plainly:** after that first boot the volume is the source
+of truth, so config changes made through `helm upgrade` **no longer reach the
+agent**. That is the point — you cannot have both the chart and the UI owning the
+same file. Consequences worth knowing:
+
+- To hand control back to the chart, delete `config.yaml` from the volume (or
+  delete the PVC) and restart the pod; it re-seeds from the ConfigMap.
+- The Deployment switches to the `Recreate` strategy, because a ReadWriteOnce
+  claim cannot be attached to the old and new pod at once. Expect a few seconds
+  of downtime on upgrades — the co-located stores keep running, so nothing that
+  already reached them is lost.
+- `helm uninstall` deletes the PVC and any edits with it.
+
+**Leave this off when the config is managed by GitOps** (ArgoCD, Flux). There the
+repository should stay the source of truth: an edit made in the app would be
+reverted by the next sync, so the read-only default is the honest behaviour —
+change the config where it is defined and let the sync roll it out.
+
 ## Using an existing Secret for the agent key
 
 ```yaml
@@ -180,7 +220,9 @@ always prefixes the release name, so the documented install (release
 | StatefulSet + Service (local VictoriaMetrics) | `leansignal-agent-victoria-metrics-single-server` |
 
 Plus a ServiceAccount, a ClusterRole/Binding for the `k8s_cluster` +
-`kubeletstats` receivers, and a Secret (unless you supply one). The OTLP Service
+`kubeletstats` receivers, and a Secret (unless you supply one). With
+`config.writable: true` there is also a PersistentVolumeClaim
+`leansignal-agent-leansignal-agent-config` holding the editable config. The OTLP Service
 carries the Loki push receiver ports **3500**/**3600** when logs are enabled. The
 rendered config carries the metrics, logs and traces pipelines (logs/traces in
 central mode). The Loki, Tempo and VictoriaMetrics resources appear only while
@@ -244,7 +286,8 @@ kubectl -n leansignal port-forward deploy/leansignal-agent-leansignal-agent 1313
 
 Configuration is **Helm values**, not files edited in place — the collector config
 is a rendered ConfigMap, so hand-editing it is undone by the next `helm upgrade`
-unless you own it out-of-band via `config.existingConfigMap`
+unless you own it out-of-band via `config.existingConfigMap`, or move it onto its
+own volume with `config.writable: true` and edit it from the LeanSignal app
 (see [Config persistence](#config-persistence--owning-the-config)).
 
 ```bash

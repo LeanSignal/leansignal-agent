@@ -6,14 +6,25 @@ metadata:
     {{- include "leansignal-agent.labels" . | nindent 4 }}
 spec:
   replicas: {{ .Values.replicaCount }}
+  {{- if .Values.config.writable }}
+  # The config PVC is ReadWriteOnce, so the replacement pod cannot attach it
+  # while the outgoing one still holds it — a rolling update would deadlock.
+  strategy:
+    type: Recreate
+  {{- end }}
   selector:
     matchLabels:
       {{- include "leansignal-agent.selectorLabels" . | nindent 6 }}
   template:
     metadata:
       annotations:
-        # Roll pods when the rendered config changes.
+        {{- if not .Values.config.writable }}
+        # Roll pods when the rendered config changes. Deliberately absent when
+        # the config is writable: the ConfigMap is then only a first-boot seed,
+        # so re-rolling on a chart change would imply an update that the running
+        # agent will not actually pick up.
         checksum/config: {{ include (print $.Template.BasePath "/configmap.yaml") . | sha256sum }}
+        {{- end }}
         {{- with .Values.podAnnotations }}
         {{- toYaml . | nindent 8 }}
         {{- end }}
@@ -24,6 +35,43 @@ spec:
       {{- with .Values.pullSecrets }}
       imagePullSecrets:
         {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- if .Values.config.writable }}
+      # The agent image runs as nonroot (distroless :nonroot, uid 65532); without
+      # a matching fsGroup the freshly provisioned volume is root-owned and the
+      # agent cannot write its own config.
+      securityContext:
+        fsGroup: {{ .Values.config.fsGroup }}
+      initContainers:
+        # Seed the config volume from the ConfigMap ONCE. If a config is already
+        # there it is left alone — that is the whole point of the writable mode:
+        # after first boot the volume is the source of truth, not the chart.
+        # Re-seed by deleting the file (or the PVC) and restarting the pod.
+        #
+        # This needs a shell, which the distroless agent image does not have,
+        # hence the separate seed image.
+        - name: seed-config
+          image: {{ .Values.config.seedImage | quote }}
+          imagePullPolicy: IfNotPresent
+          command:
+            - /bin/sh
+            - -c
+            - |
+              set -eu
+              if [ -f /etc/leansignal-agent/config.yaml ]; then
+                echo "config.yaml already present — keeping the existing config"
+                exit 0
+              fi
+              echo "seeding config from the ConfigMap"
+              # The glob skips the ConfigMap's ..data/..timestamp entries; -L
+              # dereferences the per-key symlinks into real files.
+              cp -L /seed/* /etc/leansignal-agent/
+          volumeMounts:
+            - name: config
+              mountPath: /etc/leansignal-agent
+            - name: config-seed
+              mountPath: /seed
+              readOnly: true
       {{- end }}
       containers:
         - name: agent
@@ -109,11 +157,22 @@ spec:
           volumeMounts:
             - name: config
               mountPath: /etc/leansignal-agent
-              readOnly: true
+              readOnly: {{ not .Values.config.writable }}
       volumes:
         - name: config
+          {{- if .Values.config.writable }}
+          persistentVolumeClaim:
+            claimName: {{ include "leansignal-agent.fullname" . }}-config
+          {{- else }}
           configMap:
             name: {{ include "leansignal-agent.configMapName" . }}
+          {{- end }}
+        {{- if .Values.config.writable }}
+        # First-boot seed only — the agent never reads this mount.
+        - name: config-seed
+          configMap:
+            name: {{ include "leansignal-agent.configMapName" . }}
+        {{- end }}
       {{- with .Values.nodeSelector }}
       nodeSelector:
         {{- toYaml . | nindent 8 }}

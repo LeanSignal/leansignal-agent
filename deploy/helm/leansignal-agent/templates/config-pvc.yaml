@@ -1,0 +1,28 @@
+{{- if .Values.config.writable }}
+{{/*
+Backing store for a runtime-editable collector config.
+
+A ConfigMap volume is mounted read-only by the kubelet — that is not a flag we
+can turn off — so making the config editable from the LeanSignal app means not
+mounting a ConfigMap at all. This claim takes its place and is seeded once from
+the ConfigMap by the deployment's init container.
+
+It holds a handful of small YAML files, hence the tiny default request; most
+provisioners round up to their own minimum anyway.
+*/}}
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ include "leansignal-agent.fullname" . }}-config
+  labels:
+    {{- include "leansignal-agent.labels" . | nindent 4 }}
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: {{ .Values.config.size | quote }}
+  {{- with .Values.config.storageClass }}
+  storageClassName: {{ . | quote }}
+  {{- end }}
+{{- end }}
