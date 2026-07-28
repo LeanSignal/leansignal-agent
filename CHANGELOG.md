@@ -4,6 +4,49 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and this project follows
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.8.4] - 2026-07-28
+### Fixed
+- **The chart now installs on a cluster enforcing the `restricted` Pod Security
+  Standard.** It previously could not: the collector container declared no
+  security context at all, so the API server refused to create the pod —
+  `allowPrivilegeEscalation != false`, `unrestricted capabilities`,
+  `runAsNonRoot != true`, and no `seccompProfile`. **Zero pods were admitted**,
+  and `helm install --wait` simply timed out with the reason buried in a
+  ReplicaSet event. The bundled Loki and Tempo (which set only
+  `runAsUser`/`runAsGroup`/`fsGroup`) and the `victoria-metrics-single` subchart
+  had the same gap.
+
+  All four workloads now ship a `restricted`-compliant baseline, and the
+  collector's is exposed as `podSecurityContext` / `securityContext` values so it
+  can be overridden or emptied. Nothing changes on a permissive cluster — the
+  agent image is distroless `:nonroot` and binds no privileged port, so it was
+  already running this way; it just never said so.
+
+- **`Chart.yaml`'s `version`/`appVersion` are no longer stale placeholders.**
+  They sat at `0.6.3`/`0.6.2` because the release workflow stamps both from the
+  git tag, so nobody noticed. Installing from a git checkout therefore pulled the
+  **0.6.2** image, which predates the `${leansignal:...}` resolve provider
+  (0.6.4+) — the collector crash-looped on `scheme "leansignal" is not supported`.
+  Installs of the published chart were never affected.
+
+### Changed
+- **The config-seed init container runs as the agent's own uid, not root.** With
+  `config.writable`, `fsGroup` already makes the volume group-writable, so the
+  seed never needed to be root. It now declares `runAsNonRoot` + `runAsUser`
+  (and drops all capabilities), which keeps it admissible under `restricted` and
+  leaves the seeded config **owned by the agent** rather than by root.
+
+  That also removes the failure class behind 0.8.3: a root-owned config in a
+  group-writable volume was what made the old writability probe answer wrongly.
+  The `chmod g+w` workaround added in 0.8.2 is gone with it.
+
+- `config.seedImage` and `config.fsGroup` documentation now calls out the two
+  environment-specific things worth checking before enabling `config.writable`:
+  the seed image is the chart's **only** image outside `ghcr.io` (override it for
+  mirrored/air-gapped installs), and the storage class must honour `fsGroup` —
+  a few NFS/CIFS and CSI drivers do not, and there the config is correctly
+  reported as non-writable.
+
 ## [0.8.3] - 2026-07-28
 ### Fixed
 - **A config the agent does not own is no longer reported as read-only.** The

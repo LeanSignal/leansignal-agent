@@ -94,13 +94,23 @@ spec:
         {{- include "leansignal-agent.selectorLabels" . | nindent 8 }}
         app.kubernetes.io/component: tempo
     spec:
+      # Satisfies the restricted Pod Security Standard, so the chart installs
+      # unchanged in a namespace enforcing it (see the collector's own
+      # podSecurityContext/securityContext values).
       securityContext:
+        runAsNonRoot: true
         runAsUser: 10001
         runAsGroup: 10001
         fsGroup: 10001
+        seccompProfile:
+          type: RuntimeDefault
       containers:
         - name: tempo
           image: "{{ .Values.localTempo.image.repository }}:{{ .Values.localTempo.image.tag }}"
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: [ALL]
           imagePullPolicy: {{ .Values.localTempo.image.pullPolicy }}
           args: ["-config.file=/etc/tempo/tempo.yaml"]
           ports:

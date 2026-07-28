@@ -116,6 +116,20 @@ same file. Consequences worth knowing:
   already reached them is lost.
 - `helm uninstall` deletes the PVC and any edits with it.
 
+Two things to check for your cluster before enabling it:
+
+- **The seed image.** The volume is populated by a one-shot init container, which
+  needs a shell — the agent image is distroless and has none. It defaults to
+  `busybox:1.37.0`, the chart's **only** image outside `ghcr.io`. On a mirrored
+  or air-gapped cluster, point it at your own registry: `config.seedImage:
+  my-registry.internal/busybox:1.37.0` (anything with `/bin/sh` and `cp`). It
+  runs as the agent's own uid, not root, so it is admissible in a namespace
+  enforcing the `restricted` Pod Security Standard.
+- **Your storage class must honour `fsGroup`.** That is what makes the volume
+  writable by the nonroot agent. A few NFS/CIFS and CSI drivers ignore it; there
+  the volume stays root-owned and the agent correctly reports the config as
+  non-writable. Local-path, EBS, Longhorn and the common CSI drivers are fine.
+
 **Leave this off when the config is managed by GitOps** (ArgoCD, Flux). There the
 repository should stay the source of truth: an edit made in the app would be
 reverted by the next sync, so the read-only default is the honest behaviour —

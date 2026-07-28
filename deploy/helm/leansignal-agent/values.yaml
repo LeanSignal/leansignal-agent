@@ -55,6 +55,24 @@ leansignal:
 # Set existingConfigMap to the name of a ConfigMap you manage (with a config.yaml
 # key) to own the config out-of-band: the chart then renders no ConfigMap and
 # never overwrites yours, so hand edits persist across `helm upgrade`.
+# Pod- and container-level security contexts for the collector.
+#
+# The defaults satisfy the **restricted** Pod Security Standard, so the chart
+# installs unchanged in a namespace enforcing it. The agent image is distroless
+# `:nonroot` and binds no privileged port, so it needs nothing beyond this.
+# Set either to `{}` to render none.
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 65532
+  runAsGroup: 65532
+  seccompProfile:
+    type: RuntimeDefault
+
+securityContext:
+  allowPrivilegeEscalation: false
+  capabilities:
+    drop: [ALL]
+
 config:
   existingConfigMap: ""
 
@@ -85,13 +103,22 @@ config:
   # StorageClass for the PVC. Empty uses the cluster default.
   storageClass: ""
 
-  # fsGroup applied to the pod when the config is writable, so the nonroot agent
-  # (distroless :nonroot, uid 65532) owns the provisioned volume. Only change
-  # this if you also override the image with one running as a different user.
+  # fsGroup applied to the pod when the config is writable, so the provisioned
+  # volume is group-owned and group-writable by the agent (distroless :nonroot,
+  # uid 65532). The seed init container also runs as this uid, so nothing in the
+  # pod runs as root and the seeded config ends up owned by the agent. Only
+  # change this if you also override the image with one running as another user.
+  #
+  # Note: a few storage backends (some NFS/CIFS and CSI drivers) do not apply
+  # fsGroup. There the volume stays root-owned, the agent cannot write to it, and
+  # it correctly reports the config as non-writable. Use a storage class that
+  # honours fsGroup for this mode.
   fsGroup: 65532
 
-  # Image for the one-shot init container that seeds the PVC. The agent image is
-  # distroless and has no shell, so it cannot do the copy itself.
+  # Image for the one-shot init container that seeds the volume. The agent image
+  # is distroless and has no shell, so it cannot do the copy itself. This is the
+  # chart's only image outside ghcr.io — point it at your own registry for
+  # mirrored or air-gapped installs (any image with /bin/sh and cp will do).
   seedImage: busybox:1.37.0
 
 # Central, long-retention store that receives only demanded metrics
@@ -237,6 +264,22 @@ victoria-metrics-single:
     persistentVolume:
       enabled: true
       size: 20Gi
+    # Same restricted-PSS baseline as the collector and the bundled Loki/Tempo,
+    # so a namespace enforcing `restricted` admits the whole chart. The subchart
+    # gates these on `enabled` and passes the rest through verbatim.
+    podSecurityContext:
+      enabled: true
+      runAsNonRoot: true
+      runAsUser: 1000
+      runAsGroup: 1000
+      fsGroup: 1000
+      seccompProfile:
+        type: RuntimeDefault
+    securityContext:
+      enabled: true
+      allowPrivilegeEscalation: false
+      capabilities:
+        drop: [ALL]
 
 resources:
   requests:
