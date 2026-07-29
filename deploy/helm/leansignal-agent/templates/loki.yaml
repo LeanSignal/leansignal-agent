@@ -23,6 +23,10 @@ data:
       http_listen_port: 3100
       grpc_listen_address: 0.0.0.0
       grpc_listen_port: 9096
+      # dskit default (4 MiB) bounces bigger pushes on the internal
+      # distributor->ingester hop; agent caps batches at 2 MB, keep 8x headroom.
+      grpc_server_max_recv_msg_size: 16777216
+      grpc_server_max_send_msg_size: 16777216
 
     common:
       instance_addr: 127.0.0.1
@@ -52,6 +56,12 @@ data:
     #   - retention_period (~2x the window) merely bounds disk usage; Loki
     #     deletion is compactor-driven and chunk-granular.
     limits_config:
+      # full-fidelity local mirror: size for the firehose (defaults 4 MB/s
+      # tenant / 3 MB/s stream throttle a busy host).
+      ingestion_rate_mb: 32
+      ingestion_burst_size_mb: 64
+      per_stream_rate_limit: 16MB
+      per_stream_rate_limit_burst: 32MB
       max_query_lookback: 1h
       reject_old_samples: true
       reject_old_samples_max_age: 1h
