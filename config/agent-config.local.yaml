@@ -136,6 +136,22 @@ exporters:
   # Local Loki - receives every log stream (base URL + OTLP logs path built here).
   otlphttp/loki_local:
     logs_endpoint: "${env:LEANSIGNAL_LOCAL_LOKI}/otlp/v1/logs"
+    # Cap each outgoing request at ~2 MB of proto bytes: Loki/Tempo single
+    # binaries reject anything over 4 MiB on their internal distributor->ingester
+    # gRPC hop (dskit default grpc_server_max_recv_msg_size), and an oversized
+    # request can never succeed by retrying - it wedges the queue until dropped.
+    # bytes-sizer batching merges small requests and splits big ones to fit.
+    sending_queue:
+      enabled: true
+      sizer: bytes
+      queue_size: 50000000
+      batch:
+        # explicit sizer: on v0.141 the batch does NOT reliably inherit the
+        # queue's sizer (collector bug #14500, fixed in v0.145) - without this
+        # max_size would silently mean 2M ITEMS, i.e. no byte cap at all.
+        sizer: bytes
+        flush_timeout: 1s
+        max_size: 2000000
   # "Tenant" Loki - receives only the demanded streams (points at the same local
   # Loki by default in dev; override LEANSIGNAL_LOKI_ENDPOINT to separate them).
   otlphttp/loki_tenant:
@@ -146,14 +162,44 @@ exporters:
       authenticator: leansignal_ingest_backoff/logs
     retry_on_failure:
       enabled: true
+    # Cap each outgoing request at ~2 MB of proto bytes: Loki/Tempo single
+    # binaries reject anything over 4 MiB on their internal distributor->ingester
+    # gRPC hop (dskit default grpc_server_max_recv_msg_size), and an oversized
+    # request can never succeed by retrying - it wedges the queue until dropped.
+    # bytes-sizer batching merges small requests and splits big ones to fit.
     sending_queue:
       enabled: true
+      sizer: bytes
+      queue_size: 50000000
+      batch:
+        # explicit sizer: on v0.141 the batch does NOT reliably inherit the
+        # queue's sizer (collector bug #14500, fixed in v0.145) - without this
+        # max_size would silently mean 2M ITEMS, i.e. no byte cap at all.
+        sizer: bytes
+        flush_timeout: 1s
+        max_size: 2000000
   # Local Tempo - receives every span (base URL + OTLP traces path built here;
   # the local Tempo's OTLP receiver binds 4328, not 4318).
   otlphttp/tempo_local:
     traces_endpoint: "${env:LEANSIGNAL_LOCAL_TEMPO_INGEST}/v1/traces"
     retry_on_failure:
       enabled: true
+    # Cap each outgoing request at ~2 MB of proto bytes: Loki/Tempo single
+    # binaries reject anything over 4 MiB on their internal distributor->ingester
+    # gRPC hop (dskit default grpc_server_max_recv_msg_size), and an oversized
+    # request can never succeed by retrying - it wedges the queue until dropped.
+    # bytes-sizer batching merges small requests and splits big ones to fit.
+    sending_queue:
+      enabled: true
+      sizer: bytes
+      queue_size: 50000000
+      batch:
+        # explicit sizer: on v0.141 the batch does NOT reliably inherit the
+        # queue's sizer (collector bug #14500, fixed in v0.145) - without this
+        # max_size would silently mean 2M ITEMS, i.e. no byte cap at all.
+        sizer: bytes
+        flush_timeout: 1s
+        max_size: 2000000
   # "Tenant" Tempo - receives only the demanded resources' spans (points at the
   # same local Tempo by default in dev; override LEANSIGNAL_TEMPO_ENDPOINT to
   # separate them).

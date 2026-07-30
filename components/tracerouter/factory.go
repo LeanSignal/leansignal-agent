@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"go.opentelemetry.io/collector/component"
+	"go.opentelemetry.io/collector/config/configretry"
 	"go.opentelemetry.io/collector/exporter"
 	"go.opentelemetry.io/collector/exporter/exporterhelper"
 )
@@ -29,7 +30,11 @@ func NewFactory() exporter.Factory {
 }
 
 func createDefaultConfig() component.Config {
-	return &Config{Timeout: 30 * time.Second}
+	return &Config{
+		Timeout:     30 * time.Second,
+		QueueConfig: exporterhelper.NewDefaultQueueConfig(),
+		RetryConfig: configretry.NewDefaultBackOffConfig(),
+	}
 }
 
 func createTracesExporter(
@@ -37,7 +42,8 @@ func createTracesExporter(
 	set exporter.Settings,
 	cfg component.Config,
 ) (exporter.Traces, error) {
-	r := newRouter(set.Logger, cfg.(*Config))
+	tCfg := cfg.(*Config)
+	r := newRouter(set.Logger, tCfg)
 
 	// exporterhelper gives queueing, retry and timeout — the same machinery the
 	// stock otlphttp exporter uses. Only the push itself is ours, because the
@@ -45,5 +51,7 @@ func createTracesExporter(
 	return exporterhelper.NewTraces(ctx, set, cfg, r.pushTraces,
 		exporterhelper.WithStart(r.start),
 		exporterhelper.WithCapabilities(r.capabilities()),
+		exporterhelper.WithRetry(tCfg.RetryConfig),
+		exporterhelper.WithQueue(tCfg.QueueConfig),
 	)
 }
