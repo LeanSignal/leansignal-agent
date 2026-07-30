@@ -4,6 +4,30 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and this project follows
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.8.7] - 2026-07-29
+### Fixed
+- **The agent no longer pushes a batch bigger than the backend can accept.**
+  The item-count batcher coalesced bursty small log lines into 5-13 MiB OTLP
+  requests; Loki/Tempo single binaries accept those at the distributor (counting
+  every byte - and every retry - against the tenant's monthly ingest budget) and
+  then bounce them on the internal distributor->ingester gRPC hop (dskit default
+  4 MiB), so the data was billed, dropped, and the sending queue wedged
+  head-of-line on retries that could never succeed. All tenant- and local-store
+  exporters now use exporterhelper byte-sized queue batching (`sizer: bytes`,
+  `max_size: 2000000`) - merging small requests and splitting oversized ones -
+  with the batch sizer set explicitly to dodge collector v0.141's sizer
+  inheritance bug (upstream #14500).
+- **`leansignal_trace_router` gained a real sending queue and retry.** The
+  factory claimed exporterhelper queueing/retry but passed neither option, so a
+  transient tenant-side failure dropped demanded spans outright. It now embeds
+  the standard `sending_queue` + `retry_on_failure` config (stock defaults) and
+  honors the same byte cap as the stock otlphttp exporters.
+- **The co-located Loki is sized for the firehose it actually mirrors.** The
+  local store received everything the host emits but ran Loki's multi-tenant
+  defaults (4 MB/s tenant rate, 3 MB/s per-stream, 4 MiB gRPC messages), which
+  throttled a busy host with 429s. The shipped configs raise them to 32 MB/s /
+  16 MB per-stream / 16 MiB gRPC - 8x headroom over the agent's own 2 MB cap.
+
 ## [0.8.6] - 2026-07-28
 ### Fixed
 - **The restart that applies a config is now visible in the agent's own logs.**
