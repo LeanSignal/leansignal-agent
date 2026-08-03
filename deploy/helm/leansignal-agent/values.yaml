@@ -233,7 +233,16 @@ localTempo:
       memory: 128Mi
     limits:
       cpu: "1"
-      memory: 512Mi
+      # 2Gi, matching the tenant Tempo. The hardened tempo.yaml (v2 WAL +
+      # block/completion caps + compaction bounds) was validated to survive even
+      # a maximally-compressible worst case at 1Gi (peak ~783Mi); 2Gi just adds
+      # burst headroom. Steady state ~120Mi. (Was 512Mi on the old stock config,
+      # too low to complete a block — it OOM-crash-looped.)
+      memory: 2Gi
+  # Soft heap target for the Tempo container (GOMEMLIMIT env). Kept at 650MiB
+  # (not ~65% of the 2Gi limit) so the container stays lean and the 2Gi acts as
+  # a generous safety ceiling — exactly like the tenant Tempo.
+  gomemlimit: "650MiB"
   # OTLP traces push endpoint of the local Tempo (…/v1/traces). Empty → the
   # bundled atempo service (http://<release>-tempo.<ns>.svc:4318/v1/traces).
   writeEndpoint: ""

@@ -5,6 +5,11 @@ Wants=network-online.target
 
 [Service]
 Type=simple
+# Soft heap target: the co-located Tempo has no cgroup memory limit on a host
+# install, so GOMEMLIMIT is its effective ceiling — GC keeps the heap near this
+# and reclaims transient completion/compaction spikes instead of OOMing. ~650MiB
+# matches the k8s chart's 1Gi-limit tuning; raise it on a host with headroom.
+Environment=GOMEMLIMIT=650MiB
 ExecStart=/usr/local/bin/tempo \
   -config.file=/etc/leansignal-agent/tempo.yaml
 Restart=on-failure

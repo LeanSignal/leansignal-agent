@@ -29,10 +29,39 @@ distributor:
 storage:
   trace:
     backend: local
+    # Bound concurrent block reads (compaction/query) so they can't balloon
+    # memory. GOMEMLIMIT (set in the systemd unit / launchd plist) is the real
+    # memory ceiling on a host install — there is no cgroup limit.
+    pool:
+      max_workers: 8
+      queue_depth: 200
     local:
       path: __DATA_DIR__/tempo/blocks
     wal:
       path: __DATA_DIR__/tempo/wal
+      # Force the classic v2 WAL, stored UNCOMPRESSED. The default vParquet WAL
+      # compresses on disk, so ingester.max_block_bytes is measured on the
+      # COMPRESSED size — a compressible span payload then packs GBs of raw spans
+      # into a "small" block, `completing block` decodes all of it and OOMs, and
+      # the poisoned WAL replays + re-OOMs on every restart (an unrecoverable
+      # crash-loop). v2 + v2_encoding:none stores the WAL uncompressed so
+      # max_block_bytes bounds the true (decoded) size.
+      version: v2
+      v2_encoding: none
+    block:
+      version: vParquet4
+      # Row-group write buffer held decoded; 100MB default balloons on
+      # repetitive attributes. 4MB bounds it.
+      parquet_row_group_size_bytes: 4194304
+
+# Block COMPLETION (WAL -> parquet) is the memory driver: keep blocks small and
+# short so the completion + compaction working set stays bounded.
+ingester:
+  max_block_bytes: 26214400        # 25MB per block
+  max_block_duration: 1m           # cut often
+  complete_block_timeout: 1m       # drop completed blocks from RAM quickly
+  flush_check_period: 10s
+  trace_idle_period: 10s
 
 # The "~1h window" is APPROXIMATE by design: Tempo has no query-lookback bound
 # (unlike the local Loki's max_query_lookback), deletion is compaction-driven
@@ -41,6 +70,11 @@ storage:
 compactor:
   compaction:
     block_retention: 1h
+    # Bound the compaction working set: small output blocks + a short merge
+    # window so a k-way merge never opens too many blocks at once.
+    max_block_bytes: 52428800      # 50MB output
+    compaction_window: 1m
+    max_compaction_objects: 10000
 
 usage_report:
   reporting_enabled: false
