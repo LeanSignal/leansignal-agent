@@ -9,6 +9,14 @@
         <string>/usr/local/bin/tempo</string>
         <string>-config.file=/usr/local/etc/leansignal-agent/tempo.yaml</string>
     </array>
+    <!-- Soft heap target: no cgroup memory limit on a host install, so
+         GOMEMLIMIT is Tempo's effective ceiling (GC backpressure instead of
+         OOM). ~650MiB matches the k8s chart's 1Gi-limit tuning. -->
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>GOMEMLIMIT</key>
+        <string>650MiB</string>
+    </dict>
     <key>RunAtLoad</key>
     <true/>
     <key>KeepAlive</key>

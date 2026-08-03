@@ -41,6 +41,11 @@ services:
   tempo:
     image: grafana/tempo:2.7.1
     command: ["-config.file=/etc/tempo/tempo.yaml"]
+    # GOMEMLIMIT keeps the heap lean (~650MiB); mem_limit is the hard cgroup
+    # ceiling, 2g to match the k8s chart / tenant Tempo.
+    environment:
+      GOMEMLIMIT: "650MiB"
+    mem_limit: 2g
     volumes:
       - ./tempo.yaml:/etc/tempo/tempo.yaml:ro
       - tempodata:/var/tempo

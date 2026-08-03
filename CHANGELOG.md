@@ -4,6 +4,34 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and this project follows
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.8.8] - 2026-08-03
+### Fixed
+- **The co-located local Tempo (`atempo`) no longer OOM-crash-loops on block
+  completion.** It shipped Tempo's stock config — the default vParquet WAL is
+  compressed on disk, so `ingester.max_block_bytes` was measured on the
+  COMPRESSED size. A compressible span payload then packs GBs of raw spans into
+  a "small" WAL block; `completing block` (WAL→parquet) decodes all of it and
+  OOMs, and because the WAL persists across container restarts the poisoned
+  block replays and re-OOMs on every start — an unrecoverable crash-loop (seen
+  live: 571 restarts). Fixed by forcing the classic **v2 WAL with
+  `v2_encoding: none`** (uncompressed, so `max_block_bytes` bounds the true
+  decoded size), plus `ingester` block/completion caps (25MB/1m blocks), a 4MB
+  parquet row-group buffer, and compaction bounds (50MB output, 1m window,
+  10k-object cap). Applied to all three deployment paths — the Helm chart
+  ConfigMap, the systemd/launchd host-install config, and the docker-compose
+  config — so it is fixed on client machines too.
+
+### Changed
+- **Local Tempo now runs with a `GOMEMLIMIT` and a right-sized memory cap.**
+  The Helm chart adds `GOMEMLIMIT=650MiB` and sets the Tempo container limit to
+  **2Gi** (matching the tenant Tempo; was 512Mi — too low to complete a block,
+  it OOMed on the stock config). GOMEMLIMIT stays 650MiB so the container runs
+  lean (steady ~120Mi, validated worst-case peak ~783Mi) with the 2Gi as a
+  burst ceiling. The host systemd unit and macOS launchd plist set
+  `GOMEMLIMIT=650MiB` — a host install has **no** cgroup memory limit, so this
+  soft target is Tempo's only ceiling there — and docker-compose sets
+  `GOMEMLIMIT` + `mem_limit: 2g`.
+
 ## [0.8.7] - 2026-07-29
 ### Fixed
 - **The agent no longer pushes a batch bigger than the backend can accept.**

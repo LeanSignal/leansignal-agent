@@ -20,14 +20,41 @@ distributor:
 storage:
   trace:
     backend: local
+    # Bound concurrent block reads so compaction/query can't balloon memory.
+    pool:
+      max_workers: 8
+      queue_depth: 200
     local:
       path: /var/tempo/blocks
     wal:
       path: /var/tempo/wal
+      # Force the classic v2 WAL, stored UNCOMPRESSED. The default vParquet WAL
+      # compresses on disk, so ingester.max_block_bytes is measured on the
+      # COMPRESSED size — a compressible span payload then packs GBs of raw spans
+      # into a "small" block, `completing block` OOMs, and the poisoned WAL
+      # replays + re-OOMs on restart (crash-loop). v2 + v2_encoding:none stores
+      # the WAL uncompressed so max_block_bytes bounds the true (decoded) size.
+      version: v2
+      v2_encoding: none
+    block:
+      version: vParquet4
+      parquet_row_group_size_bytes: 4194304   # 4MB write buffer (was 100MB)
+
+# Block COMPLETION (WAL -> parquet) is the memory driver: small, short blocks.
+ingester:
+  max_block_bytes: 26214400        # 25MB per block
+  max_block_duration: 1m
+  complete_block_timeout: 1m
+  flush_check_period: 10s
+  trace_idle_period: 10s
 
 compactor:
   compaction:
     block_retention: 1h
+    # Bound the compaction working set: small output + a short merge window.
+    max_block_bytes: 52428800      # 50MB output
+    compaction_window: 1m
+    max_compaction_objects: 10000
 
 usage_report:
   reporting_enabled: false
