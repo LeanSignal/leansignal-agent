@@ -4,6 +4,21 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and this project follows
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+### Fixed
+- **Helm chart: the collector's self-metrics no longer explode `receiver` label
+  cardinality under dynamic discovery.** Receivers instantiated by
+  `receiver_creator` embed the discovered endpoint (pod IP:port) and the
+  observer's per-pod instance UID in their component ID, so the `receiver`
+  attribute on `otelcol_*` self-metrics minted a brand-new label value for
+  every discovered pod and every pod recreation — unbounded series cardinality
+  in any store the self-metrics land in (observed live: 146 distinct values on
+  a ~68-pod fleet). The chart's pipelines now include a
+  `transform/component_ids` processor (before the metrics tracker, so the
+  reported metric index is collapsed too) that strips the `{endpoint=…}` and
+  `/k8s_observer/<uid>` segments, leaving one stable value per receiver
+  type+port. Static component IDs pass through untouched.
+
 ## [0.8.8] - 2026-08-03
 ### Fixed
 - **The co-located local Tempo (`atempo`) no longer OOM-crash-loops on block

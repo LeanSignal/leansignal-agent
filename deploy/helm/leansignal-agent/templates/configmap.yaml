@@ -101,6 +101,23 @@ data:
         check_interval: 1s
         limit_percentage: 80
         spike_limit_percentage: 20
+      # Collapse dynamically-created component IDs in the collector's own
+      # self-metrics. Receivers instantiated by receiver_creator embed the
+      # discovered endpoint (pod IP:port) AND the observer's per-pod instance
+      # UID in their component ID — so the `receiver` attribute on otelcol_*
+      # self-metrics mints a brand-new label value for every discovered pod and
+      # every pod recreation: unbounded series cardinality in any store these
+      # metrics land in (observed live: 146 distinct values on a ~68-pod
+      # fleet). Strip both segments down to the stable prefix; per-instance
+      # identity is worthless on the self-metrics (the SCRAPED metrics carry
+      # their own identity labels), and static component IDs (otlp,
+      # hostmetrics, …) contain neither pattern and pass through untouched.
+      transform/component_ids:
+        metric_statements:
+          - context: datapoint
+            statements:
+              - replace_pattern(attributes["receiver"], "\\{endpoint=[^}]*\\}", "") where attributes["receiver"] != nil
+              - replace_pattern(attributes["receiver"], "/k8s_observer/[0-9a-fA-F-]+", "") where attributes["receiver"] != nil
       # Stamp host identity (host.name, os.type). override:false so an OTLP client
       # that already set its own host.name is not clobbered.
       resourcedetection:
@@ -296,7 +313,9 @@ data:
         metrics/all:
           receivers: [{{ include "leansignal-agent.metricsReceivers" . }}]
     {{- if eq $mode "central" }}
-          processors: [memory_limiter, resourcedetection, resource, leansignalmetrics_tracker, batch]
+          # transform/component_ids sits BEFORE the tracker so the metric index
+          # (reported up the control stream) also sees the collapsed IDs.
+          processors: [memory_limiter, transform/component_ids, resourcedetection, resource, leansignalmetrics_tracker, batch]
           exporters: [prometheusremotewrite/local, forward/demand_filter]
         metrics/filtered:
           receivers: [forward/demand_filter]
@@ -327,7 +346,7 @@ data:
           exporters: [leansignal_trace_router]
     {{- end }}
     {{- else }}
-          processors: [memory_limiter, resourcedetection, resource, batch]
+          processors: [memory_limiter, transform/component_ids, resourcedetection, resource, batch]
           exporters: [otlp/central]
     {{- end }}
       telemetry:
