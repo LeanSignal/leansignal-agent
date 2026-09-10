@@ -37,8 +37,8 @@ func TestParseConfigFlags(t *testing.T) {
 	}{
 		{
 			name: "separate values, install layout",
-			args: []string{"--config", "file:/etc/leansignal-agent/config.yaml", "--config", "file:/etc/leansignal-agent/localstore-logs.yaml"},
-			want: []string{"file:/etc/leansignal-agent/config.yaml", "file:/etc/leansignal-agent/localstore-logs.yaml"},
+			args: []string{"--config", "file:/etc/leansignal-agent/config.yaml", "--config", "file:/etc/leansignal-agent/extra-receivers.yaml"},
+			want: []string{"file:/etc/leansignal-agent/config.yaml", "file:/etc/leansignal-agent/extra-receivers.yaml"},
 		},
 		{
 			name: "equals form",
@@ -351,7 +351,7 @@ func TestApplyRejectsInvalidConfigAndLeavesTheOriginal(t *testing.T) {
 }
 
 func TestApplyValidatesTheMergedConfigWithTheCandidateSubstituted(t *testing.T) {
-	overlay := "file:/etc/leansignal-agent/localstore-logs.yaml"
+	overlay := "file:/etc/leansignal-agent/extra-receivers.yaml"
 	m, primary := newTestManager(t, 0, overlay)
 
 	// The stub validator echoes its args into the success message path; capture
@@ -491,7 +491,7 @@ func TestNewConfigManagerPicksFirstFileSourceAsPrimary(t *testing.T) {
 	m := newConfigManager(zap.NewNop(), &Config{RemoteConfigWrite: true}, []string{
 		"--config", "env:BASE",
 		"--config", "file:/etc/leansignal-agent/config.yaml",
-		"--config", "file:/etc/leansignal-agent/localstore-logs.yaml",
+		"--config", "file:/etc/leansignal-agent/extra-receivers.yaml",
 	})
 
 	if m.primary != "/etc/leansignal-agent/config.yaml" {
@@ -506,10 +506,10 @@ func TestNewConfigManagerPicksFirstFileSourceAsPrimary(t *testing.T) {
 func TestNewConfigManagerHonoursConfigFileOverride(t *testing.T) {
 	m := newConfigManager(zap.NewNop(), &Config{
 		RemoteConfigWrite: false,
-		ConfigFile:        "/etc/leansignal-agent/localstore-logs.yaml",
+		ConfigFile:        "/etc/leansignal-agent/extra-receivers.yaml",
 	}, []string{"--config", "file:/etc/leansignal-agent/config.yaml"})
 
-	if m.primary != "/etc/leansignal-agent/localstore-logs.yaml" {
+	if m.primary != "/etc/leansignal-agent/extra-receivers.yaml" {
 		t.Errorf("primary = %q, want the configured override", m.primary)
 	}
 

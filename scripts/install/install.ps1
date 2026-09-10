@@ -126,8 +126,23 @@ if ($installVM) {
 $cfgSrc = if ($mode -eq "edge") { Join-Path $tmp "config\config-edge.yaml" } else { Join-Path $tmp "config\config.yaml" }
 if (-not (Test-Path $cfgSrc)) { Die "bundle is missing $(Split-Path $cfgSrc -Leaf) (need a newer release for edge mode)" }
 $cfgDst = Join-Path $confDir "config.yaml"
-if (-not (Test-Path $cfgDst)) { Copy-Item $cfgSrc $cfgDst -Force }
-else { Copy-Item $cfgSrc "$cfgDst.new" -Force; Info "existing config kept; template at $cfgDst.new" }
+
+# Render the single-file config. Windows collects no store logs (there is no
+# journal, and the services do not redirect to files), so both placeholders are
+# simply stripped - but they MUST be resolved either way or the agent would run
+# with a literal __DATA_DIR__ in the file_storage path.
+function Render-Config([string]$src, [string]$dst) {
+  $out = New-Object System.Collections.Generic.List[string]
+  foreach ($line in (Get-Content -LiteralPath $src)) {
+    if ($line -match '^\s*# __LS_STORE_LOG_RECEIVERS__$') { continue }
+    $line = $line -replace '\s*# __LS_STORE_LOG_RCV_IDS__$', ''
+    $out.Add(($line -replace '__DATA_DIR__', $dataDir.Replace('\', '/')))
+  }
+  Set-Content -LiteralPath $dst -Value $out -Encoding UTF8
+}
+
+if (-not (Test-Path $cfgDst)) { Render-Config $cfgSrc $cfgDst }
+else { Render-Config $cfgSrc "$cfgDst.new"; Info "existing config kept; template at $cfgDst.new" }
 
 # Services (sc.exe). Environment is passed to the agent service via its registry Environment value.
 if ($installVM) {

@@ -99,7 +99,21 @@ extensions:
   leansignal_ingest_backoff/logs:
   leansignal_ingest_backoff/traces:
 
+  # Persisted read offsets for file/journal receivers. This is what makes a
+  # restart lossless: `start_at` only applies when NO offset is stored yet, so
+  # every later restart resumes exactly where it left off - including whatever
+  # was written while the agent was down. Reference it from any receiver you add
+  # with `storage: file_storage`.
+  file_storage:
+    directory: __DATA_DIR__/logs-offsets
+    create_directory: true
+
 receivers:
+  # Receivers for the co-located stores' own logs are injected here at install
+  # time — they differ per OS (journald on Linux, filelog on macOS, none on
+  # Windows), which is the only part of this file that does.
+  # __LS_STORE_LOG_RECEIVERS__
+
   # Accept OTLP from local applications / SDKs, AND from edge agents forwarding to
   # this central agent. Bound to 0.0.0.0 (all interfaces) and unauthenticated by
   # design - keep this host on a trusted/internal network (or firewall :4317/:4318).
@@ -156,6 +170,98 @@ receivers:
           scrape_interval: 30s
           static_configs:
             - targets: [127.0.0.1:3200]
+
+  # ===========================================================================
+  # ADDING YOUR OWN SOURCES — worked examples, all commented out
+  # ===========================================================================
+  #
+  # Two steps, and MISSING THE SECOND IS THE USUAL MISTAKE:
+  #   1. define the receiver here;
+  #   2. add its id to the matching pipeline's `receivers:` list under
+  #      `service.pipelines` at the bottom of this file.
+  # A receiver that is defined but listed in no pipeline is valid config and is
+  # silently never started — no error, no warning, no data. If a new source
+  # produces nothing, check step 2 first.
+  #
+  # Then restart the agent:
+  #   Linux  sudo systemctl restart leansignal-agent
+  #   macOS  sudo launchctl kickstart -k system/com.leansignal.agent
+  #
+  # ---------------------------------------------------------------------------
+  # LOGS — tail a log file (nginx access log)
+  # ---------------------------------------------------------------------------
+  # Add `filelog/nginx` to the logs/all pipeline's receivers.
+  #
+  # filelog/nginx:
+  #   include: [/var/log/nginx/access.log]
+  #   # Resume where it left off across restarts instead of re-reading or
+  #   # skipping. `start_at` only applies before an offset exists.
+  #   start_at: end
+  #   storage: file_storage
+  #   resource:
+  #     # Becomes the Loki stream label `service_name` — this is what you query
+  #     # on, and what a demand selector matches.
+  #     service.name: nginx
+  #
+  # Multi-line entries (Rails, Java stack traces) need a line_start_pattern, or
+  # each line becomes its own record. The pattern must match the FIRST line of
+  # an entry — check it against a real line before trusting it:
+  #
+  # filelog/rails:
+  #   include: [/srv/my-app/log/production.log]
+  #   start_at: end
+  #   storage: file_storage
+  #   multiline:
+  #     # Rails writes `I, [2026-01-01T...`, not a bare date.
+  #     line_start_pattern: '^[DIWEFA], \[\d{4}-\d{2}-\d{2}'
+  #   resource:
+  #     service.name: my-rails-app
+  #
+  # ---------------------------------------------------------------------------
+  # METRICS — query a database (PostgreSQL)
+  # ---------------------------------------------------------------------------
+  # Add `postgresql` to the metrics/all pipeline's receivers. Give the agent a
+  # read-only role; `pg_monitor` is enough.
+  #
+  # postgresql:
+  #   endpoint: 127.0.0.1:5432
+  #   username: leansignal
+  #   password: ${env:PG_PASSWORD}    # put the value in agent.env, not here
+  #   databases: [mydb]               # omit for every database
+  #   collection_interval: 30s
+  #   tls:
+  #     insecure: true                # loopback; set false + configure CA for remote
+  #
+  # For a metric this receiver does not expose, run your own SQL with the
+  # sqlquery receiver — one row per series, columns become value and labels:
+  #
+  # sqlquery/orders:
+  #   driver: postgres
+  #   datasource: "host=127.0.0.1 port=5432 user=leansignal password=${env:PG_PASSWORD} dbname=mydb sslmode=disable"
+  #   collection_interval: 60s
+  #   queries:
+  #     - sql: "SELECT status, count(*) AS orders FROM orders GROUP BY status"
+  #       metrics:
+  #         - metric_name: app_orders_total
+  #           value_column: orders
+  #           attribute_columns: [status]
+  #           value_type: int
+  #
+  # ---------------------------------------------------------------------------
+  # METRICS — scrape a Prometheus endpoint (node_exporter, or any /metrics)
+  # ---------------------------------------------------------------------------
+  # Add `prometheus/apps` to the metrics/all pipeline's receivers.
+  #
+  # prometheus/apps:
+  #   config:
+  #     scrape_configs:
+  #       - job_name: node-exporter
+  #         scrape_interval: 30s
+  #         static_configs:
+  #           - targets: [127.0.0.1:9100]
+  #
+  # The agent bundles the full OpenTelemetry Collector Contrib receiver set —
+  # mysql, redis, kafka, nginx, docker_stats and many more are all available.
 
 processors:
   batch:
@@ -372,7 +478,10 @@ connectors:
   forward/trace_demand_filter: {}
 
 service:
-  extensions: [health_check, leansignal_edge_controller, leansignal_ingest_backoff/metrics, leansignal_ingest_backoff/logs, leansignal_ingest_backoff/traces]
+  # Adding a source? Define the receiver above, then add its id to the right
+  # pipeline's `receivers:` list below — a receiver missing from every pipeline
+  # never starts, silently. See the worked examples in the receivers section.
+  extensions: [health_check, leansignal_edge_controller, leansignal_ingest_backoff/metrics, leansignal_ingest_backoff/logs, leansignal_ingest_backoff/traces, file_storage]
   pipelines:
     # Everything: tracked, written to the local VM in full, and forwarded on.
     # (The collector's own metrics arrive here via OTLP too — see service.telemetry.)
@@ -389,7 +498,7 @@ service:
 
     # Everything: written to the local Loki in full, and forwarded on.
     logs/all:
-      receivers: [otlp, loki]
+      receivers: [otlp, loki]  # __LS_STORE_LOG_RCV_IDS__
       processors: [resourcedetection, resource, batch]
       exporters: [otlphttp/loki_local, forward/log_demand_filter]
 

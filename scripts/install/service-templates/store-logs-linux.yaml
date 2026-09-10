@@ -1,0 +1,35 @@
+  # --- Co-located store logs (Linux) ---------------------------------------
+  # VictoriaMetrics, Loki and Tempo write to journald (their units set no
+  # StandardOutput redirect), so one receiver per unit reads the journal.
+  # Each stamps its own service.name, which becomes the Loki stream label
+  # `service_name` — that is what you query on and what a demand selector
+  # matches. (Their *metrics* arrive separately, under the leansignal-avm /
+  # leansignal-aloki / leansignal-atempo scrape jobs above.)
+  #
+  # `start_at: end` applies only before an offset exists; after that the
+  # persisted file_storage offset wins, which is what makes restarts lossless.
+  # Starting at the end that first time is deliberate — the local Loki rejects
+  # samples older than an hour, so replaying history would just be rejected.
+  #
+  # The agent's OWN logs are not here: service.telemetry pushes them over OTLP
+  # to the loopback receiver, arriving as service.name=leansignal-agent.
+  journald/localstore_vm:
+    units: [leansignal-victoria-metrics]
+    start_at: end
+    storage: file_storage
+    resource:
+      service.name: leansignal-victoria-metrics
+
+  journald/localstore_loki:
+    units: [leansignal-loki]
+    start_at: end
+    storage: file_storage
+    resource:
+      service.name: leansignal-loki
+
+  journald/localstore_tempo:
+    units: [leansignal-tempo]
+    start_at: end
+    storage: file_storage
+    resource:
+      service.name: leansignal-tempo

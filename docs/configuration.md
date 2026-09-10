@@ -127,6 +127,29 @@ promtail/Alloy-style shippers) + `hostmetrics`. On Kubernetes the chart enables
 values). Because this is a full Collector Contrib build, you can add any upstream
 receiver/processor/exporter by editing the config.
 
+Host installs run **one** config file — everything the agent runs is in
+`config.yaml`, including the platform's store-log receivers, which the installer
+writes in at install time (journald on Linux, filelog on macOS, none on Windows).
+
+### Adding a receiver — two steps
+
+1. **Define** the receiver under `receivers:`.
+2. **Wire** it: add its id to the matching pipeline's `receivers:` list under
+   `service.pipelines`.
+
+Missing the second step is the usual mistake. A receiver that is defined but
+named in no pipeline is **valid configuration and is silently never started** —
+the agent boots clean, reports healthy, and produces no data for that source. If
+a source you just added produces nothing, check the pipeline list first.
+
+The shipped `config.yaml` carries commented, ready-to-copy examples for tailing a
+log file (nginx, and a multi-line Rails variant), querying PostgreSQL, and
+scraping a Prometheus endpoint.
+
+Receivers that read a file or journal should also set `storage: file_storage`
+(the extension is enabled by default) so their read offset survives a restart
+instead of re-reading or skipping.
+
 ## Applying config changes
 
 The collector config is read **at startup**, so changes to receivers/pipelines

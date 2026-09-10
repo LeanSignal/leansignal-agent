@@ -1,0 +1,35 @@
+  # --- Co-located store logs (macOS) ---------------------------------------
+  # launchd redirects each store daemon's output to a log file (there is no
+  # journal), so one receiver per store tails its file. Each stamps its own
+  # service.name, which becomes the Loki stream label `service_name` — that is
+  # what you query on and what a demand selector matches. (Their *metrics*
+  # arrive separately, under the leansignal-avm / leansignal-aloki /
+  # leansignal-atempo scrape jobs above.)
+  #
+  # `start_at: end` applies only before an offset exists; after that the
+  # persisted file_storage offset wins, which is what makes restarts lossless.
+  # Starting at the end that first time is deliberate — the local Loki rejects
+  # samples older than an hour, so replaying history would just be rejected.
+  #
+  # The agent's OWN logs are not here: service.telemetry pushes them over OTLP
+  # to the loopback receiver, arriving as service.name=leansignal-agent.
+  filelog/localstore_vm:
+    include: [__LOG_DIR__/victoria-metrics.log]
+    start_at: end
+    storage: file_storage
+    resource:
+      service.name: leansignal-victoria-metrics
+
+  filelog/localstore_loki:
+    include: [__LOG_DIR__/loki.log]
+    start_at: end
+    storage: file_storage
+    resource:
+      service.name: leansignal-loki
+
+  filelog/localstore_tempo:
+    include: [__LOG_DIR__/tempo.log]
+    start_at: end
+    storage: file_storage
+    resource:
+      service.name: leansignal-tempo

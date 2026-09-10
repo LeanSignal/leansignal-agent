@@ -4,7 +4,32 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and this project follows
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.9.0] - 2026-09-10
+### Changed
+- **A host install now runs a single configuration file.** The installer used to
+  write a second file, `localstore-logs.yaml`, and load it as another `--config`
+  next to `config.yaml`; it carried the co-located stores' own log receivers,
+  which differ per OS (journald on Linux, filelog on macOS). Collector configs
+  merge with **arrays replaced, not merged**, so that overlay's `logs/all`
+  receiver list silently overwrote the one in `config.yaml` — a receiver added by
+  hand was dropped with no error and never started, and the only warning about it
+  was a comment inside the overlay itself. The installer now renders the
+  platform's store-log receivers **into `config.yaml`** and the agent runs one
+  `--config`: what is on disk is what runs. Store logs and host metrics are still
+  collected by default, unchanged. **Upgrading in place is not supported for this
+  release — uninstall and reinstall**, since the service unit and LaunchDaemon
+  now pass a single `--config`.
+- **The shipped `config.yaml` now documents how to add your own sources.**
+  Commented, ready-to-copy examples for tailing a log file (nginx, plus a
+  multi-line Rails variant), querying PostgreSQL (`postgresql` and `sqlquery`),
+  and scraping a Prometheus endpoint — each stating the step that is easy to
+  miss: a receiver must be **defined** *and* **added to a pipeline's `receivers:`
+  list**, because one that is defined but wired nowhere is valid configuration
+  and is silently never started.
+- **The `file_storage` extension is enabled on every install**, not just where
+  store logs are collected, so any file or journal receiver you add can set
+  `storage: file_storage` and keep its read offset across restarts.
+
 ### Fixed
 - **Helm chart: the collector's self-metrics no longer explode `receiver` label
   cardinality under dynamic discovery.** Receivers instantiated by
