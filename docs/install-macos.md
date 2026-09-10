@@ -140,11 +140,12 @@ curl -s --get 'http://127.0.0.1:3100/loki/api/v1/query_range' \
   --data-urlencode 'query={service_name="leansignal-loki"}' --data-urlencode 'limit=5'
 ```
 
-This is wired by a small overlay config, `/usr/local/etc/leansignal-agent/localstore-logs.yaml`, loaded as a
-second `--config` next to `config.yaml`. Linux reads journald filtered to the
-three units; macOS tails the daemons' log files. To turn it off, delete that file
-**and** its `--config` argument from the agent's LaunchDaemon plist — leaving one
-without the other stops the agent booting.
+These receivers live in `/usr/local/etc/leansignal-agent/config.yaml` like
+everything else — the installer writes them in, tailing the daemons' log files
+under `/usr/local/var/log/leansignal-agent/` (Linux reads journald instead; it is
+the one part of the config that differs per OS). To turn them off, delete the
+`filelog/localstore_*` receivers and remove their ids from the `logs/all`
+pipeline's `receivers:` list, then restart the agent.
 
 ## How logs and traces are stored
 

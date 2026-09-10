@@ -19,3 +19,4 @@ deploy/helm/*/Chart.lock
 CLAUDE.md
 
 vm-data/
+.vmcache/
