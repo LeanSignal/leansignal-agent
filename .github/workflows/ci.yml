@@ -12,16 +12,13 @@ permissions:
 jobs:
   go:
     name: Go build & test
-    runs-on: self-hosted
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
 
       - uses: actions/setup-go@v6
         with:
           go-version-file: go.mod
-          # Persistent self-hosted runner: caches persist on local disk, so skip
-          # setup-go's slow multi-GB actions/cache upload (see release.yml).
-          cache: false
 
       - name: Vet
         run: go vet ./...
@@ -38,34 +35,29 @@ jobs:
 
   golangci:
     name: golangci-lint
-    runs-on: self-hosted
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
       - uses: actions/setup-go@v6
         with:
           go-version-file: go.mod
-          # Persistent self-hosted runner: GOCACHE/GOMODCACHE persist on local
-          # disk, so skip setup-go's multi-GB actions/cache download+upload.
-          cache: false
       - uses: golangci/golangci-lint-action@v9
         with:
           # golangci-lint v2 (v2-schema .golangci.yml). Keep in sync with
           # GOLANGCI_VERSION in the Makefile so local `make lint` == CI.
           version: v2.12.2
-          # Same reason: ~/.cache/golangci-lint + Go build cache persist on the
-          # runner's disk, so don't push/pull them through GitHub's cache service.
-          skip-cache: true
 
   ocb:
     name: OCB generate + compile
-    runs-on: self-hosted
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
       - uses: actions/setup-go@v6
         with:
           go-version-file: go.mod
-          # Persistent self-hosted runner: caches persist on local disk, so skip
-          # setup-go's slow multi-GB actions/cache upload (see release.yml).
+          # The full-distribution build cache is multi-GB: uploading it through
+          # actions/cache costs more than it saves and would evict the smaller
+          # caches of the other jobs from the repo's 10 GB cache quota.
           cache: false
       - name: Install OCB
         run: go install go.opentelemetry.io/collector/cmd/builder@v0.141.0
@@ -76,7 +68,7 @@ jobs:
 
   helm:
     name: Helm lint
-    runs-on: self-hosted
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
       - uses: azure/setup-helm@v5
@@ -89,7 +81,7 @@ jobs:
 
   shellcheck:
     name: Shellcheck installers
-    runs-on: self-hosted
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
       - name: Run shellcheck
