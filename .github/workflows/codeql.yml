@@ -15,7 +15,7 @@ permissions:
 jobs:
   analyze:
     name: Analyze (Go)
-    runs-on: self-hosted
+    runs-on: ubuntu-latest
     # Code scanning (CodeQL upload) needs GitHub Advanced Security, which is free
     # on public repos but not available on private repos without a GHAS license.
     # Skip (don't fail) while the repo is private; this auto-enables when it's public.
@@ -26,9 +26,6 @@ jobs:
       - uses: actions/setup-go@v6
         with:
           go-version-file: go.mod
-          # Persistent self-hosted runner: GOCACHE/GOMODCACHE persist on local
-          # disk, so skip setup-go's multi-GB actions/cache download+upload.
-          cache: false
 
       - name: Initialize CodeQL
         uses: github/codeql-action/init@v3

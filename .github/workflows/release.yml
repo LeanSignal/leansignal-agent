@@ -10,14 +10,23 @@ permissions:
   packages: write   # push images + chart to ghcr
 
 jobs:
-  # Single job on the self-hosted runner (which now has Docker): goreleaser
-  # cross-compiles every platform AND builds + pushes the multi-arch images, then
-  # the VM bundles are attached. The arm64 image is a COPY-only Dockerfile, so the
-  # QEMU emulation the Set up QEMU step registers is barely exercised.
+  # Single job on a GitHub-hosted runner: goreleaser cross-compiles every platform
+  # AND builds + pushes the multi-arch images, then the VM bundles are attached.
+  # The arm64 image is a COPY-only Dockerfile, so the QEMU emulation the Set up
+  # QEMU step registers is barely exercised.
   release:
     name: Build & publish release
-    runs-on: self-hosted
+    runs-on: ubuntu-latest
     steps:
+      - name: Free disk space
+        # Hosted runners guarantee only ~14 GB free; five full-contrib builds
+        # (build cache + temp + dist) need more. Drop preinstalled toolchains
+        # this job never uses.
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc \
+            /usr/local/.ghcup /opt/hostedtoolcache/CodeQL
+          df -h /
+
       - uses: actions/checkout@v5
         with:
           fetch-depth: 0   # goreleaser needs full history for the changelog
@@ -25,18 +34,17 @@ jobs:
       - uses: actions/setup-go@v6
         with:
           go-version-file: go.mod
-          # false: this is a PERSISTENT self-hosted runner, so GOCACHE/GOMODCACHE
-          # already survive between runs on local disk. setup-go's actions/cache
-          # integration would otherwise tar+upload ~6 GB of full-contrib cache to
-          # GitHub every run (10-15 min of post-job overhead) for zero benefit.
+          # false: setup-go's actions/cache integration would tar+upload ~6 GB of
+          # full-contrib cache to GitHub every run (10-15 min of post-job
+          # overhead). Releases are far rarer than the 7-day cache eviction, so
+          # that cache would never be hit.
           cache: false
 
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v4
         with:
-          # Persistent self-hosted runner: the binfmt image already stays in the
-          # local Docker store between runs, so skip caching it to GitHub Actions
-          # (a redundant ~32 MB upload/download every release).
+          # Releases are rare, so caching the ~32 MB binfmt image in GitHub
+          # Actions would only add an upload that is evicted before reuse.
           cache-image: false
 
       - name: Set up Docker Buildx
@@ -75,14 +83,13 @@ jobs:
         uses: goreleaser/goreleaser-action@v7
         with:
           version: "~> v2"
-          # -p 6: build all targets in parallel (there are 5). ~5-6 GB RAM each, so
-          # ≈30 GB — fine on the 48 GB / 12-CPU runner.
-          args: release --clean -p 6
+          # -p 2: each of the 5 targets peaks at ~5-6 GB RAM, so two at a time
+          # (≈12 GB) is what fits the hosted runner's 16 GB / 4 vCPU.
+          args: release --clean -p 2
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          # Go's build temp defaults to /tmp, a small tmpfs on this runner; five
-          # parallel full-contrib builds exhaust it. Redirect to the disk-backed
-          # work volume (same fs as GOCACHE, which has space).
+          # Keep Go's build temp on the runner's work volume (same fs as GOCACHE)
+          # rather than /tmp.
           GOTMPDIR: ${{ runner.temp }}
           TMPDIR: ${{ runner.temp }}
 
@@ -91,8 +98,7 @@ jobs:
           VERSION: ${{ github.ref_name }}
           STRICT_VM: "1"
         run: |
-          # zip/unzip are used by build-bundles.sh; install only if missing
-          # (self-hosted runner images vary).
+          # zip/unzip are used by build-bundles.sh; install only if missing.
           if ! command -v zip >/dev/null || ! command -v unzip >/dev/null; then
             sudo apt-get update && sudo apt-get install -y zip unzip
           fi
@@ -108,9 +114,8 @@ jobs:
           if command -v gh >/dev/null 2>&1; then
             gh release upload "${{ github.ref_name }}" bundles/* --clobber
           else
-            # Minimal self-hosted runner without gh: upload via the GitHub API.
-            # (This is an expected fallback, not an error — install gh on the
-            # runner to use the gh path instead.)
+            # Runner image without gh: upload via the GitHub API. (An expected
+            # fallback, not an error.)
             echo "note: gh CLI not installed; uploading bundles via the GitHub API (expected, fine)"
             # Capture the release JSON fully first. Piping curl straight into
             # `grep -m1` closes the pipe early, so curl dies with error 23
@@ -131,7 +136,7 @@ jobs:
 
   helm:
     name: Publish Helm chart
-    runs-on: self-hosted
+    runs-on: ubuntu-latest
     needs: release
     steps:
       - uses: actions/checkout@v5
